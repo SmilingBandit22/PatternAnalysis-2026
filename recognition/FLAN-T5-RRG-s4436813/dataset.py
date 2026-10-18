@@ -126,3 +126,50 @@ class LaymanRRGDataSet(Dataset):
                  "labels": labels}
 
 # -------------- Loading & Splits --------------
+
+def create_dataloaders(B: int = 8, distributed: bool = False,
+                       num_workers: int = 2, model: str = MODEL,
+                       dataset: str = DATASET_NAME) -> \
+                       Tuple[DataLoader, DataLoader,
+                              DataLoader, PreTrainedTokenizerBase]:
+    """
+    Creates PyTorch DataLoaders. Outputs train, val_full,
+    val_unseen splits.
+    """
+    tokeniser: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(model)
+    train_hf, val_full_hf, val_unseen_hf = load_and_split_dataset(dataset)
+
+    train_ds: LaymanRRGDataSet = LaymanRRGDataSet(train_hf, tokeniser)
+    val_full_ds: LaymanRRGDataSet = LaymanRRGDataSet(val_full_hf, tokeniser)
+    val_unseen_ds: LaymanRRGDataSet = LaymanRRGDataSet(val_unseen_hf, tokeniser)
+
+    train_sampler: Optional[DistributedSampler] = (
+        DistributedSampler(train_ds, shuffle=True) if distributed else None
+    )
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=B,
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    val_full_loader = DataLoader(
+        val_full_ds,
+        batch_size=B,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    val_unseen_loader = DataLoader(
+        val_unseen_ds,
+        batch_size=B,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_loader, val_full_loader, val_unseen_loader, tokeniser
