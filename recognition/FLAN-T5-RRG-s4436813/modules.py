@@ -16,7 +16,7 @@ class LoRALinear(nn.Module):
 
     def __init__(self, base_layer: nn.Linear, r: int = 8,
                  alpha: float = 32.0, dropout: float = 0.05):
-        self._base_layer = base_layer
+        super().__init__()
 
         # Freezes the initial base layer, no gradient update
         self._base_layer = self._base_layer
@@ -26,9 +26,25 @@ class LoRALinear(nn.Module):
         self._r = r
         self._alpha = alpha
         self._dropout = dropout
-        self._in_features = self._base_layer.in_features
-        self._out_features = self._base_layer.out_features
+        self._in_features: int = self._base_layer.in_features
+        self._out_features: int = self._base_layer.out_features
+        self._scaling: float = alpha / r
 
         # Create the dropout layer
         self._lora_dropout = (nn.Dropout(p=self._dropout) if dropout
                             > 0.0 else nn.Identity())
+
+        # LoRA linear layers
+        self._lora_A: nn.Linear = nn.Linear(self._in_features, self._r, bias=False)
+        self._lora_B: nn.Linear = nn.Linear(self._r, self._out_features, bias=False)
+
+        # Produces the Gaussian noise 
+        nn.init.normal_(self._lora_A.weight, mean=0.0, std=0.02)
+        nn.init.zeros_(self._lora_B.weight)
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        b_out = self._base_layer(t)
+
+        # dropout -> LoRA A -> LoRA B
+        l_out = self._lora_B(self._lora_A(self._lora_dropout(t)))
+        return b_out + l_out
