@@ -33,7 +33,7 @@ def normalise_text(text: str) -> str:
     Cleans text to normalise the input to the model.
     """
     # lower -> remove punc. -> remove spaces, newlines -> strip leading/trailing
-    transforms: tuple[Callable] = (
+    transforms: tuple[Callable, ...] = (
         str.lower, 
         lambda s: re.sub(r"[^\w\s]", "", s), # punctuation
         lambda s: re.sub(r"\s+", " ", s), # spaces and newlines

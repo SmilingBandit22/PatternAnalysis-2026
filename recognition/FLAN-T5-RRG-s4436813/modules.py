@@ -48,3 +48,24 @@ class LoRALinear(nn.Module):
         # dropout -> LoRA A -> LoRA B
         l_out = self._lora_B(self._lora_A(self._lora_dropout(t)))
         return b_out + l_out
+
+class ClinicalFlanT5(nn.Module):
+    """bottom text"""
+    def __init__(self, model: str = MODEL, mode: str = "lora",
+                 r: int = 8, alpha: float = 0.05):
+
+        super().__init__()
+        self._mode: str = mode
+        self._r: int  = r
+        self._alpha: float = alpha
+
+        self._model: T5ForConditionalGeneration = (
+            T5ForConditionalGeneration.from_pretrained(
+                model
+            )
+        )
+
+    def _inject_lora(self, r: int, alpha: float, dropout: float) -> None:
+        for module in self._model.modules():
+            pass
+
