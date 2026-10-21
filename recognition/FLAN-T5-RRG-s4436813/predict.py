@@ -86,3 +86,93 @@ def evaluate_split(model: ClinicalFlanT5, loader: DataLoader,
                 max_new_tokens=128,
                 num_beams=2,
             )
+
+        total_tokens += gen_tokens.numel()
+
+        # Decode predictions
+        decoded_preds = tokeniser.batch_decode(gen_tokens, skip_special_tokens=True)
+
+        # Replace -100 in labels so tokenizer can decode references
+        labels[labels == IGNORE_INDEX] = tokeniser.pad_token_id
+        decoded_refs = tokeniser.batch_decode(labels, skip_special_tokens=True)
+        decoded_src = tokeniser.batch_decode(input_ids, skip_special_tokens=True)
+
+        all_preds.extend(decoded_preds)
+        all_refs.extend(decoded_refs)
+        all_sources.extend(decoded_src)
+
+        sample_count += input_ids.size(0)
+        if 0 < max_samples <= sample_count:
+            break
+
+    elapsed_time = time.perf_counter() - start_time
+    tokens_per_sec = total_tokens / elapsed_time if elapsed_time > 0 else 0.0
+    peak_vram = (
+        torch.cuda.max_memory_allocated(device) / (1024**3)
+        if torch.cuda.is_available()
+        else 0.0
+    )
+
+    # Compute ROUGE-1, ROUGE-2, ROUGE-L, ROUGE-Lsum
+    results: Dict[str, float] = rouge.compute(
+        predictions=all_preds, references=all_refs, use_stemmer=True
+    )
+
+    results["throughput_tok_per_sec"] = tokens_per_sec
+    results["peak_vram_gb"] = peak_vram
+
+    samples = [
+        {"source": src, "reference": ref, "prediction": pred}
+        for src, ref, pred in zip(all_sources, all_refs, all_preds)
+    ]
+
+    return results, samples
+
+def print_clinical_autopsy(samples: List[Dict[str, str]], max_cases: int = 4) -> None:
+    """Prints qualitative clinical safety autopsy cases for error analysis."""
+    print("\n" + "=" * 60)
+    print("CLINICAL SAFETY AUTOPSY (AUDIT CASES)")
+    print("=" * 60)
+
+    keywords = ["pneumothorax", "nodule", "fracture", "effusion", "consolidation", "mass"]
+    displayed: int = 0
+
+    # Prioritize cases containing acute pathology keywords
+    for item in samples:
+        src = item["source"].lower()
+        if any(kw in src for kw in keywords) or not displayed:
+            displayed += 1
+            print(f"\n--- Case {displayed} ---")
+            print(f"[RADIOLOGY REPORT]:\n{item['source'].replace(TASK_PREFIX, '').strip()}")
+            print(f"\n[GROUND TRUTH LAY SUMMARY]:\n{item['reference'].strip()}")
+            print(f"\n[MODEL PREDICTION]:\n{item['prediction'].strip()}")
+            print("-" * 50)
+            if displayed >= max_cases:
+                break
+
+def main() -> None:
+    args = parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Running evaluation on device: {device} | Mode: {args.mode}")
+
+    model = load_eval_model(args.mode, args.checkpoint, device)
+    tokeniser = AutoTokenizer.from_pretrained(MODEL)
+
+    _, val_full_loader, val_unseen_loader, _ = create_dataloaders(
+        B=args.batch_size, distributed=False
+    )
+
+    print("\nEvaluating on Val_Full...")
+    full_metrics, _ = evaluate_split(model, val_full_loader, tokeniser, device, args.num_samples)
+    for k, v in full_metrics.items():
+        print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
+
+    print("\nEvaluating on Val_Unseen (deduplicated)...")
+    unseen_metrics, samples = evaluate_split(model, val_unseen_loader, tokeniser, device, args.num_samples)
+    for k, v in unseen_metrics.items():
+        print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
+
+    print_clinical_autopsy(samples, max_cases=4)
+
+if __name__ == "__main__":
+    main()
