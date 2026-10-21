@@ -36,7 +36,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_eval_model(mode: str, checkpoint_path: Optional[str], device: torch.device) -> ClinicalFlanT5:
+def load_eval_model(mode: str, checkpoint_path: Optional[str],
+                     device: torch.device) -> ClinicalFlanT5:
     """Initializes model and loads weights if checkpoint is provided."""
     model = ClinicalFlanT5(mode=mode).to(device)
 
