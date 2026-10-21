@@ -55,3 +55,34 @@ def load_eval_model(mode: str, checkpoint_path: Optional[str],
 
     model.eval()
     return model
+
+
+def evaluate_split(model: ClinicalFlanT5, loader: DataLoader,
+                    tokeniser: PreTrainedTokenizerBase, device: torch.device,
+                      max_samples: int = -1,) -> Tuple[Dict[str, float], List[Dict[str, str]]]:
+    """Generates summaries, computes ROUGE metrics, and measures throughput."""
+    rouge = evaluate.load("rouge")
+    all_preds: List[str] = list()
+    all_refs: List[str] = list()
+    all_sources: List[str] = list()
+
+    total_tokens: int = 0
+    start_time = time.perf_counter()
+    sample_count: int = 0
+
+    if torch.cuda.is_available():
+      torch.cuda.reset_peak_memory_stats(device)
+
+    for batch in loader:
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        labels = batch["labels"].clone()
+
+        # Generate summary predictions
+        with torch.no_grad():
+            gen_tokens = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=128,
+                num_beams=2,
+            )
