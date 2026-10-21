@@ -14,7 +14,6 @@ class TrainingConstants:
     FINETUNE: str = "full_finetune"
     LORA: str = "lora"
 
-
 class LoRALinear(nn.Module):
     """"LoRA wrapper for a frozen linear layer"""
 
@@ -83,7 +82,6 @@ class ClinicalFlanT5(nn.Module):
                     param.requires_grad = False 
                 self._inject_lora(r=self._r, alpha=self._alpha,
                                   dropout=self._dropout)
-                
 
     def _inject_lora(self, r: int, alpha: float, dropout: float) -> None:
         """

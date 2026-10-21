@@ -92,6 +92,7 @@ def save_checkpoint(model: nn.Module, mode: str, out: str = OUT_DIR) -> None:
     tuning.
     """
     state: dict = model.state_dict()
+    os.makedirs(out, exist_ok=True)
 
     if mode == TrainingConstants.LORA:
         state = {
@@ -151,9 +152,9 @@ def main() -> None:
 
     # Rank 0 GPU is the 'leader'
     if not rank:
-        trainable, _, _= model.count_parameters()
+        trainable, total, pct = model.count_parameters()
         print(f"[{args.mode.upper()}] Trainable: {trainable:,}" 
-              + " / Total: {total:,} ({pct:.2f}%)")
+              + f" / Total: {total:,} ({pct:.2f}%)")
 
     if distributed:
         model = DDP(model, device_ids=[device.index])
@@ -182,7 +183,7 @@ def main() -> None:
             vram: float = (torch.cuda.max_memory_allocated() / (1024 ** 3) 
                            if torch.cuda.is_available() else 0.0)
             print(f"Epoch {epoch + 1}/{EPOCHS} | Train Loss: {t_loss:.4f} " 
-                  + "| Val Loss: {v_loss:.4f} | Peak VRAM: {vram:.2f} GB")
+                  + f"| Val Loss: {v_loss:.4f} | Peak VRAM: {vram:.2f} GB")
 
     # Save artifacts on rank 0
     if not rank:
