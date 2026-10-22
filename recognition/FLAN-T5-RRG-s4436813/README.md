@@ -1,1 +1,3 @@
-Clinical Radiology Report Summarisation: Parameter-Efficient FLAN-T5 Adaptation and the Clinical Safety Dilemma
+Translating Radiology Findings into Plain Language: Evaluating FLAN-T5 and Custom PyTorch LoRA on LaymanRRG
+
+Aidan Fassy – 44368133
