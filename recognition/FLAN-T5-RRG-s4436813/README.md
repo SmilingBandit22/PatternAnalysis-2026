@@ -20,7 +20,7 @@ So the current investigation is to evaluate whether LoRA fine-tuning is able to 
 
 A FLAN-T5 is fundamentally an *Encoder-Decoder* architecture, and subsequently has a huge architectural advantage over *decoder-only* causal models (e.g. GPT-2). Findings in radiological reports are scattered, non-linear and conditional, radiologists may mention an acute finding in a single sentence, describe normal anatomy for three, and then add crucial context in the last sentence – this means that each sentence isn't necessarily weighed equally.
 
-Within FLAN-T5, a bidirectional encoderis used.
+Within FLAN-T5, a bidirectional encoder is used – with every token attending to every other token simultaneously, with no causal attention mask. This allows for the encoder to build a detailed contextual repreentation of the entire clinical narrative, before anything of substance is generated.
 
 
 - Explain the PyTorch LoRA mechanism – get into the mathematics
