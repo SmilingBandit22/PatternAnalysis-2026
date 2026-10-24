@@ -40,5 +40,8 @@ The low-rank update is handled by the parallel adapter path. The down-projection
 ### Model Architecture 
 ![System Architecture](architecture.png)
 #### FLAN-T5 Backbone
+
+The base model used is `google/flan-t5-base` (~248M parameters). The architecture consists of 12 encoder blocks and 12 decoder blocks with an internal model dimension of $d_{\text{model}} = 768$, 12 attention heads ($d_k = d_v = 64$), a feed-forward expansion dimension of $d_{\text{ff}} = 2048$, Pre-LN RMSNorm, and relative position biases. 
+
 #### Custom LoRA layer
 #### Paramters Counts & Optimiser Memory Analysis
