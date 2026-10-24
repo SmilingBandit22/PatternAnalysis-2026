@@ -39,9 +39,14 @@ The low-rank update is handled by the parallel adapter path. The down-projection
 
 ### Model Architecture 
 ![System Architecture](architecture.png)
+Figure 1: Diag
 #### FLAN-T5 Backbone
 
 The base model used is `google/flan-t5-base` (~248M parameters). The architecture consists of 12 encoder blocks and 12 decoder blocks with an internal model dimension of $d_{\text{model}} = 768$, 12 attention heads ($d_k = d_v = 64$), a feed-forward expansion dimension of $d_{\text{ff}} = 2048$, Pre-LN RMSNorm, and relative position biases. 
+
+The directional encoder has the funtion of capturing the complete report without any causal masking, this is critical because radiological reports are interdependent across disparate sections of text. The autoregressive decoder generates patient-facing words sequentially, continually referencing the encoder's memory states ($H_{enc}$) via. the cross attention mechanism. Cross attention is crucial, because it ensures that the plain-language output is grounded in actual medical observations.
+
+![FLAN-T5 Sequence-to-Sequence Architecture](flan_t5_backbone.png)
 
 #### Custom LoRA layer
 #### Paramters Counts & Optimiser Memory Analysis
