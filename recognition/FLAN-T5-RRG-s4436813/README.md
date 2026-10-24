@@ -14,14 +14,11 @@ So the current investigation is to evaluate whether LoRA fine-tuning is able to 
 
 ## Architecture & Working Principles
 
-- Explain Encoder-Decoder architecture, and why its used
-
-**Still to do: Why is there an advantage over decoder only???**
 ### FLAN-T5: Encoder-Decoder architecture
 
-A FLAN-T5 is fundamentally an *Encoder-Decoder* architecture, and subsequently has a huge architectural advantage over *decoder-only* causal models (e.g. GPT-2). Findings in radiological reports are scattered, non-linear and conditional, radiologists may mention an acute finding in a single sentence, describe normal anatomy for three, and then add crucial context in the last sentence – this means that each sentence isn't necessarily weighed equally.
+A FLAN-T5 model is fundamentally an *Encoder-Decoder* architecture, which provides a distinct architectural advantage over *decoder-only* causal models (such as GPT-2). Radiological narratives are scattered, non-linear, and conditional; a radiologist might note an acute abnormality in the first sentence, describe unremarkable anatomy for several lines, and then introduce critical diagnostic context in the final impression. Unlike decoder-only models that process text strictly left-to-right, FLAN-T5's bidirectional encoder allows every token to attend to all other tokens simultaneously without a causal mask. This allows the model to build a complete, contextual representation of the entire clinical case before any summary text is produced.
 
-Within FLAN-T5, a bidirectional encoder is used – with every token attending to every other token simultaneously, with no causal attention mask. This allows for the encoder to build a detailed contextual repreentation of the entire clinical narrative, before anything of substance is generated.
+The causal decoder then acts as a grounded information bottleneck. During generation, it uses *cross-attention* to constantly query the encoder's memory states ($H_{\text{enc}}$) at each step. This mechanism forces each generated layperson phrase to remain directly anchored to actual source evidence, significantly reducing the risk of unconstrained hallucinations.
 
 The decoder used primarily functions as an information bottleneck. While generating, is uses *cross-attention* to constantly query the encoder's hidden representations ($H_enc$).
 
@@ -47,6 +44,7 @@ The base model used is `google/flan-t5-base` (~248M parameters). The architectur
 The directional encoder has the function of capturing the complete report without any causal masking, this is critical because radiological reports are interdependent across disparate sections of text. The autoregressive decoder generates patient-facing words sequentially, continually referencing the encoder's memory states ($H_{enc}$) via. the cross attention mechanism. Cross attention is crucial, because it ensures that the plain-language output is grounded in actual medical observations.
 
 ![FLAN-T5 Sequence-to-Sequence Architecture](flan_t5_backbone.png)
+Figure 2: Diagram of the T5 Backbone of the project
 
 #### Custom LoRA layer
 Rather than modifying all of the attention projections, the custom `LoRALinear` layers are injected into the query ($W_q$) and value ($W_v$) projections across:
@@ -83,11 +81,43 @@ A major issue with routine radiology data is that normal screening reports frequ
 
 To catch this, `load_and_split_dataset` normalises each report and computes its SHA-256 hash across the training split. Which is then evaluated across two validation sets: `Val_Full`, which serves as the official untouched validation split (10,000 cases) for standard competition benchmarking, and `Val_Unseen`, a filtered subset containing only cases whose normalised text never appeared anywhere in the training data, allowing us to directly test whether the model is genuinely generalising or just memorising templates.
 
-## Feasibility Review
-Still to insert here.
+## Midpoint Feasibility Review
+
+### User Need, Scope & Acceptance Criteria
+The intended users for this product are digital health engineering teams developing automated patient portal communication tools to translate dense, technical radiology reports into plain-language summaries at approximately a 6th-grade reading level.
+
+The following acceptance criteria are established for this prototype:
+* **Lexical Performance:** Achieve a gain of $\geq 10\%$ in ROUGE-1, ROUGE-2, and ROUGE-L over an untuned zero-shot baseline on the validation split.
+* **VRAM Ceiling:** Keep peak GPU memory allocation strictly below $8.0$ GB during LoRA training (batch size $\geq 8$, sequence length 512) and below $4.0$ GB during evaluation on a single GPU node.
+* **Clinical Safety Constraint:** Strictly zero hallucinations of acute findings and zero omissions of critical incidental findings (such as an apical pneumothorax or suspicious pulmonary nodule), audited across representative validation cases.
+* **Throughput:** Achieve $\geq 30$ tokens/second during inference on Rangpur HPC GPU nodes.
+* **Generalisation Check:** Keep the performance drop $\leq 15\%$ on an audited, deduplicated validation split (`Val_Unseen`) compared to the full split (`Val_Full`) to verify genuine generalisation over template memorisation.
+
+### Model Choice & Course Concepts
+This project uses the ACL 2025 BioLaySumm `LaymanRRG` open-source benchmark dataset. Inputs are prepended with the task conditioning prompt: `"Translate this radiology report into plain language for the patient: "`.
+
+The selected architecture is `google/flan-t5-base` (~248M parameters), an encoder-decoder sequence-to-sequence transformer consisting of:
+* **Encoder & Decoder Layers:** 12 encoder blocks and 12 decoder blocks
+* **Model Dimensions:** $d_{\text{model}} = 768$, feed-forward expansion dimension $d_{\text{ff}} = 2048$
+* **Attention Heads:** 12 heads with key/value dimension $d_k = d_v = 64$
+* **Vocabulary Size:** 32,128 tokens
+* **Normalisation:** Pre-LN RMSNorm with relative position biases
+
+This project falls under the `[Hard Difficulty]` band. FLAN-T5's bidirectional encoder grounds plain-text translations in complex, non-linear findings, while the custom PyTorch Low-Rank Adaptation (LoRA) avoids the memory overhead of full fine-tuning. This setup directly investigates the core course dilemma: preventing models from earning deceptively high ROUGE scores by repeating boilerplate normal screening templates while failing to convey acute clinical findings.
+
+### Preliminary Feasibility Evidence
+Initial profiling of the `LaymanRRG` dataset confirmed that over $95\%$ of reports fit within the $512$-token limit without cutting off clinical findings. Exact string matching flagged repeated normal screening templates across splits, confirming the need for a deduplicated test set (`Val_Unseen`) to catch pure memorisation. A smoke test on an interactive Rangpur GPU node confirmed that `flan-t5-base` loads and runs autoregressive generation in pure PyTorch with zero issues. Finally, running a forward and backward pass with LoRA on an initial test batch peaked at $\sim 3.4$ GB VRAM on a single GPU. This left ample headroom below the $8.0$ GB ceiling, verifying that training would operate comfortably within our memory budget.
+
+### Risks, Budget & Fallback
+Key technical risks and mitigations include:
+* **VRAM Out-of-Memory:** Full fine-tuning risks OOM errors due to AdamW optimizer states across 248M parameters on 512-token sequences. Custom LoRA is implemented as the primary strategy to restrict updates to $<0.4\%$ of parameters.
+* **Boilerplate Inflation:** High ROUGE scores masking factual hallucinations or omissions of acute pathologies. Addressed through qualitative clinical safety autopsies.
+* **Computing Budget:** $\sim 3$ GPU hours for data auditing and pipeline smoke tests; $\sim 8\text{--}10$ GPU hours total for training and benchmarking runs via Slurm on Rangpur.
+* **Workable Fallback:** If memory allocation issues persist under full fine-tuning, reduce batch size to 4 with 4 gradient accumulation steps under FP16/bfloat16. If resource constraints remain intractable, fall back to the $\sim 60\text{M}$ parameter `flan-t5-small` model as the comparative baseline while retaining `flan-t5-base` with LoRA as the primary architecture.
+
 ## Experimental Results & Benchmarking
 
-All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, mixed-precision `bfloat16`, a batch size of 8, and beam search decoding ($k=2$). We benchmarked three distinct setups: an untuned Zero-Shot baseline, our custom PyTorch LoRA model ($r=8, \alpha=32$), and a Full Fine-Tuning run.
+All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, mixed-precision `bfloat16`, a batch size of 8, and beam search decoding ($k=2$). We benchmarked three distinct setups: an untuned Zero-Shot baseline, the custom PyTorch LoRA model ($r=8, \alpha=32$), and a Full Fine-Tuning run.
 
 ### Quantitative Performance & Resource Use
 
