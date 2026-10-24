@@ -39,7 +39,7 @@ The low-rank update is handled by the parallel adapter path. The down-projection
 
 ### Model Architecture 
 ![System Architecture](architecture.png)
-Figure 1: Diag
+Figure 1: Diagram of the FLAN-T5 Model Architecture
 #### FLAN-T5 Backbone
 
 The base model used is `google/flan-t5-base` (~248M parameters). The architecture consists of 12 encoder blocks and 12 decoder blocks with an internal model dimension of $d_{\text{model}} = 768$, 12 attention heads ($d_k = d_v = 64$), a feed-forward expansion dimension of $d_{\text{ff}} = 2048$, Pre-LN RMSNorm, and relative position biases. 
@@ -54,4 +54,11 @@ Rather than modifying all of the attention projections, the custom `LoRALinear` 
 * **Decoder Self-Attention:** Ensures that there is linguistic fluency, sentence structure and the layperson tone across generated summary tokens.
 * **Decoder Cross-Attention:** The core translational bridge. Allows the decoder to query important technical details in the encoder ($H_{\text{enc}}$) and extract the plain language equivalents.
 
-#### Paramters Counts & Optimiser Memory Analysis
+#### Parameters Counts & Optimiser Memory Analysis
+**Base Model Parameters:** $247,577,856$ (frozen, `requires_grad = False`) 
+**Trainable LoRA Parameters:** $884,736$ ($0.36\%$ of total)
+**Total Parameters:** $248,462,592$
+
+Because $99.64\%$ of the weights are frozen, the AdamW optimizer only allocates gradient history, momentum ($m_t$), and second-moment variance ($v_t$) states for 884K parameters (~$7$ MB) instead of 248M parameters (~$2$ GB). This reduced peak training VRAM on an A100 GPU from $10.29$ GB during full fine-tuning down to $6.59$ GB with LoRA.
+
+## Data Pipeline & Preprocessing
