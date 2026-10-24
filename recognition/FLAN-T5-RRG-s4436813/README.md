@@ -62,3 +62,29 @@ Rather than modifying all of the attention projections, the custom `LoRALinear` 
 Because $99.64\%$ of the weights are frozen, the AdamW optimizer only allocates gradient history, momentum ($m_t$), and second-moment variance ($v_t$) states for 884K parameters (~$7$ MB) instead of 248M parameters (~$2$ GB). This reduced peak training VRAM on an A100 GPU from $10.29$ GB during full fine-tuning down to $6.59$ GB with LoRA.
 
 ## Data Pipeline & Preprocessing
+### Dataset
+The `ACL 2025 BioLaySumm Subtask 2.1` dataset was used as a benchmark. This dataset consists of two distinct columns:
+* `radiology_report`: This is the source column, which serves as the expert report, written by radiologists.
+* `layman_report`: This is the target column. It is a plain-laguage summary, aimed to be around the 6th-geade reading level.
+
+The dataset has split sizes of $150,454$ for training, $10,000$ for validation and $10,537$ for testing.
+
+### Preprocessing & Tokenisation
+In `dataset.py`, each input report is prepended with the task prompt `"Translate this radiology report into plain language for the patient: "` to activate FLAN-T5's instruction-following mode. Source narratives are capped at $512$ tokens, which covers over $95\%$ of full clinical reports without truncation, while target summaries are limited to $128$ tokens.
+
+To prevent padding tokens from skewing training, `LaymanRRGDataSet.__getitem__` handles target padding explicitly. While T5 assigns `pad_token_id = 0`, PyTorch's `CrossEntropyLoss` expects `ignore_index = -100` to mask tokens out of the loss calculation:
+
+```python
+labels[labels == self._tokeniser.pad_token_id] = -100
+```
+### Leakage Prevention
+
+A major issue with routine radiology data is that normal screening reports frequently repeat identical template phrasing (e.g. *"Lungs are clear. No acute cardiopulmonary abnormality."*). If these exact templates leak into both the training and validation sets, a model can easily game lexical metrics like ROUGE by simply memorising common phrases rather than learning how to actually translate clinical text.
+
+To catch this, `load_and_split_dataset` normalises each report and computes its SHA-256 hash across the training split. Which is then evaluated across two validation sets: `Val_Full`, which serves as the official untouched validation split (10,000 cases) for standard competition benchmarking, and `Val_Unseen`, a filtered subset containing only cases whose normalised text never appeared anywhere in the training data, allowing us to directly test whether the model is genuinely generalising or just memorising templates.
+
+## Feasibility Review
+Still to insert here.
+## Experimental Results & Benchmarking
+## Clinical Safety
+## Model Deployment Recommendations
