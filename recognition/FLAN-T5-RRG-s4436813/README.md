@@ -86,5 +86,19 @@ To catch this, `load_and_split_dataset` normalises each report and computes its 
 ## Feasibility Review
 Still to insert here.
 ## Experimental Results & Benchmarking
+
+All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, mixed-precision `bfloat16`, a batch size of 8, and beam search decoding ($k=2$). We benchmarked three distinct setups: an untuned Zero-Shot baseline, our custom PyTorch LoRA model ($r=8, \alpha=32$), and a Full Fine-Tuning run.
+
+### Quantitative Performance & Resource Use
+
+| Configuration | Trainable Params | Total Params | Train / Val Loss | Peak Train VRAM | Peak Eval VRAM | Eval Throughput | `Val_Full` (R-1 / R-2 / R-L) | `Val_Unseen` (R-1 / R-2 / R-L) | Generalization Drop |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Zero-Shot Baseline** | 0 (0.00%) | 247.6M | N/A | N/A | 1.69 GB | 374.7 tok/s | 0.3493 / 0.1360 / 0.3118 | 0.3663 / 0.1594 / 0.3188 | +4.9% (no memorisation) |
+| **Custom PyTorch LoRA** | **884,736 (0.36%)** | 248.5M | 1.0451 / 0.7289 | **6.59 GB** | **1.69 GB** | **307.8 tok/s** | **0.7066 / 0.5090 / 0.6477** | **0.6792 / 0.4605 / 0.6087** | **-3.9% (Target $\le 15\%$)** |
+| **Full Fine-Tuning** | 247,577,856 (100.0%) | 247.6M | 0.8299 / 0.5678 | 10.29 GB | 1.69 GB | 380.3 tok/s | 0.7317 / 0.5474 / 0.6780 | 0.7040 / 0.4986 / 0.6389 | -3.8% (Target $\le 15\%$) |
+
+### Training Dynamics
+![LoRA Loss Curve](results/lora_loss.png)
+### Takeaways
 ## Clinical Safety
 ## Model Deployment Recommendations
