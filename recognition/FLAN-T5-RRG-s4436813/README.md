@@ -174,3 +174,24 @@ In real-world deployment, the prevailing recommendation would be deploying the *
 While the FFT attained higher ROUGE scores ($+0.025$) scores, LoRA captures over $96\%$ of the lexical perfomance, with a staggering $36\%$ less VRAM ($6.59\text{ GB}$ vs $10.29\text{ GB}$). The previous point is an aside note, because the main consideration was ensuring that the output was clinically accurate, without producing any erroneous hallucinations which are not based on the data. The low-rank bottleneck of LoRA acted as a regulariser against template memorisation. 
 
 However, there is a very important caveat to the deployment. Generative language models remain non-deterministic, so no sequence-to-sequence model should be deployed completely unmonitored to patients. 
+
+```mermaid
+flowchart TD
+    Report["Technical Radiology Report (Source)"] --> T1["Tier 1: Generative Translation<br>(FLAN-T5 + LoRA, Beam k=2)"]
+    T1 --> Draft["Candidate Lay Summary"]
+    
+    subgraph Guardrails["Tier 2: Automated Clinical Verification"]
+        Draft --> G1["Entity Grounding Check<br>(UMLS / RadGraph)"]
+        Report -.-> G1
+        G1 -->|Hallucination Detected?| RouteReview["Flag for Radiologist Review"]
+        
+        Draft --> G2["Acute Omission Watchlist<br>(e.g. Pneumothorax, Fracture)"]
+        Report -.-> G2
+        G2 -->|Critical Finding Missed?| RouteReview
+        
+        T1 --> G3["Generation Confidence Filter<br>(Min Token Prob &tau; &ge; 0.85)"]
+        G3 -->|Low Confidence Token?| RouteReview
+    end
+    
+    G1 & G2 & G3 -->|All Checks Passed| PatientPortal["Release to Patient Portal"]
+```
