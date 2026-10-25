@@ -142,5 +142,15 @@ $$ e^{0.7289} \approx 2.07$$
 
 Across the vocabulary of $32,128$ tokens, this indicated that the model is on average, uncertain between barely two candidate tokens at each autoregressive decoding step.
 ### Takeaways
+
+### Key Takeaways
+
+By restricting parameter updates strictly to the low-rank attention projections ($W_q$ and $W_v$), our custom LoRA implementation trained just $884{,}736$ parameters—a mere $0.36\%$ of the $248\text{M}$ parameter backbone. Despite updating less than $0.4\%$ of the network, LoRA captured $96.6\%$ of Full Fine-Tuning's ROUGE-1 ($0.7066$ vs $0.7317$) and $93.0\%$ of its ROUGE-2 ($0.5090$ vs $0.5474$). Crucially, freezing $99.64\%$ of the model eliminated the massive AdamW optimiser states required by full fine-tuning, cutting peak training VRAM from $10.29\text{ GB}$ down to $6.59\text{ GB}$. This $36\%$ reduction brings the entire training footprint comfortably below our $8.0\text{ GB}$ feasibility ceiling, proving that high-quality clinical adaptation is viable on consumer-tier hardware.
+
+In comparison to the untuned Zero-Shot baseline, LoRA yielded dramatic relative gains of $+102.3\%$ in ROUGE-1 ($0.3493$ to $0.7066$) and $+274.3\%$ in ROUGE-2 ($0.1360$ to $0.5090$). This confirms that while generalist foundation models possess broad syntactic fluency, domain-specific sequence-to-sequence adaptation is indispensable for parsing dense radiological narratives into coherent lay summaries. Furthermore, evaluating across our deduplicated `Val_Unseen` cohort revealed a minimal performance drop of only $3.9\%$ in ROUGE-1 ($0.7066$ to $0.6792$) and $6.0\%$ in ROUGE-L ($0.6477$ to $0.6087$). Remaining well within our $\le 15\%$ acceptance hurdle verifies that the model learned genuine clinical translation semantics rather than over-indexing on repetitive normal screening templates.
+
 ## Clinical Safety
+
+In biomedical NL generation, the standard overlap metrics ($n$-gram ROUGE) don't accurately capture clinical safety. Because radiological reports frequently contain
+
 ## Model Deployment Recommendations
