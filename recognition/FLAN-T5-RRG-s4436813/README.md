@@ -165,6 +165,12 @@ Th results of the audit show a characteristic vulnerability of langauge models w
 
 Updating all of the $248\text{M}$ parameters meant that FFT was prone to memorising common templates instead of sticking to the source text. Many of the reports within the training data described properly placed lines, which meant that the unconstrained model defaulted "correctly positioned", potentially conveying dangerous misinformation to a patient.
 
-As a contrast, the low-rank bottleneck of LoRA prevents hallucinations by acting like a built-in regulariser. By freezing the base netwrok and only tuning $W_q$ and $W_v$, LoRA was able to stay grounded within the encoder's hiddent reprensentations. There were no detected instances of dangerous clinical hallucinations.
+As a contrast, the low-rank bottleneck of LoRA prevents hallucinations by acting like a built-in regulariser. By freezing the base network and only tuning $W_q$ and $W_v$, LoRA was able to stay grounded within the encoder's hiddent reprensentations. There were no detected instances of dangerous clinical hallucinations.
 
-## Model Deployment Recommendations
+## Recommended Model Deployment
+
+In real-world deployment, the prevailing recommendation would be deploying the **FLAN-T5 base model, with the custom LoRA ($r = 8$)**, over the Full Fine-Tuning checkpoint.
+
+While the FFT attained higher ROUGE scores ($+0.025$) scores, LoRA captures over $96\%$ of the lexical perfomance, with a staggering $36\%$ less VRAM ($6.59\text{ GB}$ vs $10.29\text{ GB}$). The previous point is an aside note, because the main consideration was ensuring that the output was clinically accurate, without producing any erroneous hallucinations which are not based on the data. The low-rank bottleneck of LoRA acted as a regulariser against template memorisation. 
+
+However, there is a very important caveat to the deployment. Generative language models remain non-deterministic, so no sequence-to-sequence model should be deployed completely unmonitored to patients. 
