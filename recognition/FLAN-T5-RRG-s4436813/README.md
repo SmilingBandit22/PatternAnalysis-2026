@@ -6,7 +6,7 @@ Within healthcare and medicine, radiological reports have the reputation of bein
 
 It is for this reason that the objective of this project is to build a sequence-to-sequence NLP prototype that translates jargon-heavy complex diagnostic findings into plain, accurate and simple layperson accessible language – ideally at the 6th grade level. This project uses the ACL 2025 BioLaySum (LaymanRRG) open-source benchmark dataset.
 
-The `google/flan-t5-base` model (~248M parameters) is used, using a custom PyTorch Low-Rank Adaptation (LoRA) layer, which is injected into the attention query ($W_q$) and the value ($W_v$) projections. A goal of this investigation was also to avoid heavy parameter fine-tuning by freezing ~98.6% of the base weights and only updating a lightweight rank-8 bottleneck (~$884\text{K}$ parameters, $0.4\%$ of total).
+The `google/flan-t5-base` model (~248M parameters) is used, using a custom PyTorch Low-Rank Adaptation (LoRA) layer, which is injected into the attention query ($W_q$) and the value ($W_v$) projections. A goal of this investigation was also to avoid heavy parameter fine-tuning by freezing $99.64\%$ of the base weights and only updating a lightweight rank-8 bottleneck (~$884\text{K}$ parameters, $0.36\%$ of total).
 
 However, a problem still remains: standard metrics like ROUGE-1, ROUGE-2 and ROUGE-L measure surface n-gram overlap, not the underlying clinical truth. As a result of this, a model can subvert the testing objectives by memorising normal radiological findings (e.g. "lungs are clear, no acute abnormality") while omitting crucial clinical details, some of these can be as severe as hallucinating non-existent tumors.
 
@@ -19,8 +19,6 @@ So the current investigation is to evaluate whether LoRA fine-tuning is able to 
 A FLAN-T5 model is fundamentally an *Encoder-Decoder* architecture, which provides a distinct architectural advantage over *decoder-only* causal models (such as GPT-2). Radiological narratives are scattered, non-linear, and conditional; a radiologist might note an acute abnormality in the first sentence, describe unremarkable anatomy for several lines, and then introduce critical diagnostic context in the final impression. Unlike decoder-only models that process text strictly left-to-right, FLAN-T5's bidirectional encoder allows every token to attend to all other tokens simultaneously without a causal mask. This allows the model to build a complete, contextual representation of the entire clinical case before any summary text is produced.
 
 The causal decoder then acts as a grounded information bottleneck. During generation, it uses *cross-attention* to constantly query the encoder's memory states ($H_{\text{enc}}$) at each step. This mechanism forces each generated layperson phrase to remain directly anchored to actual source evidence, significantly reducing the risk of unconstrained hallucinations.
-
-The decoder used primarily functions as an information bottleneck. While generating, is uses *cross-attention* to constantly query the encoder's hidden representations ($H_enc$).
 
 ### Custom PyTorch LoRA
 
@@ -41,14 +39,14 @@ Figure 1: Diagram of the FLAN-T5 Model Architecture
 
 The base model used is `google/flan-t5-base` (~248M parameters). The architecture consists of 12 encoder blocks and 12 decoder blocks with an internal model dimension of $d_{\text{model}} = 768$, 12 attention heads ($d_k = d_v = 64$), a feed-forward expansion dimension of $d_{\text{ff}} = 2048$, Pre-LN RMSNorm, and relative position biases. 
 
-The directional encoder has the function of capturing the complete report without any causal masking, this is critical because radiological reports are interdependent across disparate sections of text. The autoregressive decoder generates patient-facing words sequentially, continually referencing the encoder's memory states ($H_{enc}$) via. the cross attention mechanism. Cross attention is crucial, because it ensures that the plain-language output is grounded in actual medical observations.
+The directional encoder has the function of capturing the complete report without any causal masking, this is critical because radiological reports are interdependent across disparate sections of text. The autoregressive decoder generates patient-facing words sequentially, continually referencing the encoder's memory states ($H_{\text{enc}}$) via the cross attention mechanism. Cross attention is crucial, because it ensures that the plain-language output is grounded in actual medical observations.
 
 ![FLAN-T5 Sequence-to-Sequence Architecture](flan_t5_backbone.png)
 Figure 2: Diagram of the T5 Backbone of the project
 
 #### Custom LoRA layer
 Rather than modifying all of the attention projections, the custom `LoRALinear` layers are injected into the query ($W_q$) and value ($W_v$) projections across:
-* **Encoder Self-Attention:** Steers attention across the scattered clincial findings, to build a rich contextual representation.
+* **Encoder Self-Attention:** Steers attention across the scattered clinical findings, to build a rich contextual representation.
 * **Decoder Self-Attention:** Ensures that there is linguistic fluency, sentence structure and the layperson tone across generated summary tokens.
 * **Decoder Cross-Attention:** The core translational bridge. Allows the decoder to query important technical details in the encoder ($H_{\text{enc}}$) and extract the plain language equivalents.
 
@@ -63,7 +61,7 @@ Because $99.64\%$ of the weights are frozen, the AdamW optimizer only allocates 
 ### Dataset
 The `ACL 2025 BioLaySumm Subtask 2.1` dataset was used as a benchmark. This dataset consists of two distinct columns:
 * `radiology_report`: This is the source column, which serves as the expert report, written by radiologists.
-* `layman_report`: This is the target column. It is a plain-laguage summary, aimed to be around the 6th-geade reading level.
+* `layman_report`: This is the target column. It is a plain-language summary, aimed to be around the 6th-grade reading level.
 
 The dataset has split sizes of $150,454$ for training, $10,000$ for validation and $10,537$ for testing.
 
@@ -129,10 +127,10 @@ All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, m
 | **Full Fine-Tuning** | 247,577,856 (100.0%) | 247.6M | 0.8299 / 0.5678 | 10.29 GB | 1.69 GB | 380.3 tok/s | 0.7317 / 0.5474 / 0.6780 | 0.7040 / 0.4986 / 0.6389 | -3.8% (Target $\le 15\%$) |
 
 ### Training Dynamics
-![LoRA Loss Curve](results/lora_loss.png)
-Figure 3: Training and Validation cross-entropy loss trajectories over $18,806$ steps on and NVIDIA A100 GPU.
+![LoRA Loss Curve](lora_loss.png)
+Figure 3: Training and Validation cross-entropy loss trajectories over $18,806$ steps on an NVIDIA A100 GPU.
 
-Training converged smoothly over a single epoch, consisting of $18,806$ optimisation steps, using a batch sizr of $8$. Cross-entropy loss was began at rougly ~$2.75$ on intial batches and steadily decreased to the final training loss of $1.0451$, witht the validation loss reaching $0.7289$.
+Training converged smoothly over a single epoch, consisting of $18,806$ optimisation steps, using a batch size of $8$. Cross-entropy loss began at roughly $2.75$ on initial batches and steadily decreased to the final training loss of $1.0451$, with the validation loss reaching $0.7289$.
 
 Notably, validation loss remained consistently lower than training loss throughout training. This can be attributed due to active regularisation; during training passes, a dropout rate of $p=0.05$ is injected into the LoRA bottleneck to prevent over-reliance on specific token co-occurrences. During evaluation passes, the dropout is completely disabled, allowing the full deterministic capacity of the adapted network to be used without the injected noise. The active regularisation explains the difference between the losses.
 
@@ -161,17 +159,17 @@ To evaluate factual clinical fidelity beyond surface statistics, four audits wer
 
 ### Interpretation of Case Study
 
-Th results of the audit show a characteristic vulnerability of langauge models within a clinical context. Full Fine-Tuning achieved higher ROUGE scores ($0.7317$ vs. $0.7066$), but produced a fatal medical hallucination. In case 3, the Full FT inserted "correctly positioned" within the output.
+The results of the audit show a characteristic vulnerability of language models within a clinical context. Full Fine-Tuning achieved higher ROUGE scores ($0.7317$ vs. $0.7066$), but produced a fatal medical hallucination. In case 3, the Full FT inserted "correctly positioned" within the output.
 
 Updating all of the $248\text{M}$ parameters meant that FFT was prone to memorising common templates instead of sticking to the source text. Many of the reports within the training data described properly placed lines, which meant that the unconstrained model defaulted "correctly positioned", potentially conveying dangerous misinformation to a patient.
 
-As a contrast, the low-rank bottleneck of LoRA prevents hallucinations by acting like a built-in regulariser. By freezing the base network and only tuning $W_q$ and $W_v$, LoRA was able to stay grounded within the encoder's hiddent reprensentations. There were no detected instances of dangerous clinical hallucinations.
+As a contrast, the low-rank bottleneck of LoRA prevents hallucinations by acting like a built-in regulariser. By freezing the base network and only tuning $W_q$ and $W_v$, LoRA was able to stay grounded within the encoder's hidden representations. There were no detected instances of dangerous clinical hallucinations.
 
 ## Recommended Model Deployment
 
 In real-world deployment, the prevailing recommendation would be deploying the **FLAN-T5 base model, with the custom LoRA ($r = 8$)**, over the Full Fine-Tuning checkpoint.
 
-While the FFT attained higher ROUGE scores ($+0.025$) scores, LoRA captures over $96\%$ of the lexical perfomance, with a staggering $36\%$ less VRAM ($6.59\text{ GB}$ vs $10.29\text{ GB}$). The previous point is an aside note, because the main consideration was ensuring that the output was clinically accurate, without producing any erroneous hallucinations which are not based on the data. The low-rank bottleneck of LoRA acted as a regulariser against template memorisation. 
+While the FFT attained higher ROUGE scores ($+0.025$), LoRA captures over $96\%$ of the lexical performance, with a staggering $36\%$ less VRAM ($6.59\text{ GB}$ vs $10.29\text{ GB}$). The previous point is an aside note, because the main consideration was ensuring that the output was clinically accurate, without producing any erroneous hallucinations which are not based on the data. The low-rank bottleneck of LoRA acted as a regulariser against template memorisation. 
 
 However, there is a very important caveat to the deployment. Generative language models remain non-deterministic, so no sequence-to-sequence model should be deployed completely unmonitored to patients. It is for this reason that the below framework is recommended for real-world deployment:
 
@@ -246,6 +244,7 @@ Tier 1 generates candidate summaries using `google/flan-t5-base` with custom LoR
 ### Operational & Hardware Sizing
 
 Inference requires just $1.69\text{ GB}$ of VRAM, allowing deployment on budget cloud GPUs (NVIDIA T4) or standard consumer hardware (RTX 3060/4060) without multi-GPU overhead. Generating at $307.8\text{ tokens/second}$ yields an average latency under $0.25\text{ seconds}$ per report, easily supporting real-time hospital portal workloads.
+
 ## Dependencies & Execution Guide
 
 All experiments were implemented using PyTorch modules, without any high-level library wrappers.
@@ -273,6 +272,7 @@ pip install torch transformers datasets evaluate rouge-score sentencepiece matpl
 ### Reproducibility & CLI Execution
 
 All pipelines execute directly from `recognition/FLAN-T5-RRG-s4436813/`:
+
 | Pipeline Stage | CLI Command | Generated Artifacts & Telemetry |
 | :--- | :--- | :--- |
 | **1. Zero-Shot Eval** | `python predict.py --mode zero_shot --num_samples 500` | Baseline ROUGE (`Val_Full` & `Val_Unseen`), VRAM & throughput |
@@ -282,6 +282,18 @@ All pipelines execute directly from `recognition/FLAN-T5-RRG-s4436813/`:
 | **5. Evaluate LoRA** | `python predict.py --mode lora --checkpoint checkpoints/lora.pt --num_samples 500` | LoRA ROUGE scores, latency telemetry & 4-case safety autopsy |
 | **6. Evaluate Full FT** | `python predict.py --mode full_finetune --checkpoint checkpoints/full_finetune.pt --num_samples 500` | Full FT ROUGE scores & comparative safety autopsy |
 
-
-
 ## Artificial Intelligence Usage Disclosure
+
+In compliance with the COMP3710 Assessment Guidelines, this section documents the nature, scope, and verification of Generative Artificial Intelligence tools utilised during this project:
+
+* **AI Tools Utilised:** Google Gemini (accessed via the Antigravity agentic development environment).
+* **Specific Tasks Assisted:**
+  * *Visualisation & Plotting:* Assisting in styling the Mermaid deployment flowchart and scaffolding the Matplotlib layout script for the training loss trajectory (`lora_loss.png`).
+  * *HPC Scripting Templates:* Drafting boilerplate Slurm batch submission scripts (`sbatch`) for scheduling interactive and distributed GPU runs on the UQ Rangpur HPC cluster.
+  * *Report Review & Formatting:* Proofreading report sections for clarity, formatting KaTeX mathematical notation, and checking compliance against the course marking rubric.
+* **Auditing, Verification & Empirical Testing:**
+  * *Mathematical Auditing:* Manually derived the Low-Rank Adaptation formulation ($h = W_0 x + \frac{\alpha}{r} B A x$) and verified the initialization scheme ($B = 0$, $A \sim \mathcal{N}(0, \sigma^2)$) to ensure that the adapter evaluates to zero perturbation ($\Delta W = 0$) at step 0 without corrupting base model representations.
+  * *Data Pipeline Verification:* Audited the data collation logic in PyTorch to confirm target padding tokens were strictly mapped from T5's default (`0`) to `-100` for cross-entropy loss masking, and validated the SHA-256 report hashing algorithm to ensure zero template leakage into `Val_Unseen`.
+  * *Empirical Benchmarking:* Validated all scripts with `py_compile` and empirically tested single-GPU and distributed `torchrun` execution directly on NVIDIA A100 nodes, actively tracking step-level loss convergence, peak VRAM allocations, and inference throughput.
+
+**Verification Responsibility:** In accordance with course policy, the author, Aidan Fassy (s4436813), assumes 100% personal responsibility for every line of code, loss formula, evaluation metric, and clinical interpretation presented in this submission.

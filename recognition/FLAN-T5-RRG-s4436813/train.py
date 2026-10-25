@@ -46,7 +46,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# TODO: I don't like the way this is structured.
 def setup_distributed() -> tuple[bool, int, torch.device]:
     """
     Returns (distributed, rank, device). Joins the process group under torchrun.
