@@ -1,3 +1,13 @@
+"""
+COMP3710 Pattern Analysis - Final Assessment Project
+Title: Clinical Radiology Report Summarisation with FLAN-T5 and Custom LoRA
+Author: Aidan Fassy
+Student ID: 44368133
+File: dataset.py
+Description: Data loading, task conditioning, SentencePiece tokenisation,
+             loss-masking, and SHA-256 deduplication for LaymanRRG.
+"""
+
 import hashlib
 import re
 from functools import reduce

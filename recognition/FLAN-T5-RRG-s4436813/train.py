@@ -1,3 +1,13 @@
+"""
+COMP3710 Pattern Analysis - Final Assessment Project
+Title: Clinical Radiology Report Summarisation with FLAN-T5 and Custom LoRA
+Author: Aidan Fassy
+Student ID: 44368133
+File: train.py
+Description: Pure PyTorch distributed training and validation loop supporting
+             mixed-precision bfloat16, VRAM profiling, and loss logging.
+"""
+
 import argparse
 import os
 import matplotlib

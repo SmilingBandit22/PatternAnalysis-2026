@@ -1,3 +1,13 @@
+"""
+COMP3710 Pattern Analysis - Final Assessment Project
+Title: Clinical Radiology Report Summarisation with FLAN-T5 and Custom LoRA
+Author: Aidan Fassy
+Student ID: 44368133
+File: modules.py
+Description: Pure PyTorch LoRALinear implementation and ClinicalFlanT5 wrapper
+             with support for zero-shot, LoRA, and full fine-tuning.
+"""
+
 import torch
 import torch.nn as nn
 from transformers import T5ForConditionalGeneration

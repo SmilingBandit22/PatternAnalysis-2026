@@ -173,25 +173,115 @@ In real-world deployment, the prevailing recommendation would be deploying the *
 
 While the FFT attained higher ROUGE scores ($+0.025$) scores, LoRA captures over $96\%$ of the lexical perfomance, with a staggering $36\%$ less VRAM ($6.59\text{ GB}$ vs $10.29\text{ GB}$). The previous point is an aside note, because the main consideration was ensuring that the output was clinically accurate, without producing any erroneous hallucinations which are not based on the data. The low-rank bottleneck of LoRA acted as a regulariser against template memorisation. 
 
-However, there is a very important caveat to the deployment. Generative language models remain non-deterministic, so no sequence-to-sequence model should be deployed completely unmonitored to patients. 
+However, there is a very important caveat to the deployment. Generative language models remain non-deterministic, so no sequence-to-sequence model should be deployed completely unmonitored to patients. It is for this reason that the below framework is recommended for real-world deployment:
 
 ```mermaid
 flowchart TD
-    Report["Technical Radiology Report (Source)"] --> T1["Tier 1: Generative Translation<br>(FLAN-T5 + LoRA, Beam k=2)"]
-    T1 --> Draft["Candidate Lay Summary"]
-    
-    subgraph Guardrails["Tier 2: Automated Clinical Verification"]
-        Draft --> G1["Entity Grounding Check<br>(UMLS / RadGraph)"]
-        Report -.-> G1
-        G1 -->|Hallucination Detected?| RouteReview["Flag for Radiologist Review"]
-        
-        Draft --> G2["Acute Omission Watchlist<br>(e.g. Pneumothorax, Fracture)"]
-        Report -.-> G2
-        G2 -->|Critical Finding Missed?| RouteReview
-        
-        T1 --> G3["Generation Confidence Filter<br>(Min Token Prob &tau; &ge; 0.85)"]
-        G3 -->|Low Confidence Token?| RouteReview
+    Source(["Technical Radiology Report (Clinical Source Narrative)"])
+
+    subgraph Tier1["Tier 1: Parameter-Efficient Neural Generation"]
+        LoRA["FLAN-T5-Base + Custom LoRA (r = 8, α = 32) | Deterministic Beam Search (k = 2)"]
+        Draft["Candidate Plain-Language Summary + Token Log-Probabilities"]
+        LoRA --> Draft
     end
-    
-    G1 & G2 & G3 -->|All Checks Passed| PatientPortal["Release to Patient Portal"]
+
+    subgraph RefPipe["Deterministic Clinical Reference Extraction"]
+        Parser["Biomedical Entity & Acuity Parser (UMLS / RadGraph)"]
+        RefState["Extracted Source Entities (E_source) & High-Acuity Pathology Flags"]
+        Parser --> RefState
+    end
+
+    Source --> LoRA
+    Source --> Parser
+
+    subgraph Tier2["Tier 2: Automated Clinical Safety Verification"]
+        G1["1. Entity Grounding Check — Verify E_summary ⊆ E_source (Zero Hallucinations)"]
+        G2["2. Acute Omission Watchlist — Verify 0 Missed Critical Findings (e.g. Malposition, Pneumothorax)"]
+        G3["3. Generation Confidence Filter — Verify Minimum Token Probability τ ≥ 0.85"]
+    end
+
+    Draft --> G1
+    Draft --> G2
+    Draft --> G3
+    RefState -.->|"Ground-Truth Entities"| G1
+    RefState -.->|"Required Acute Entities"| G2
+
+    Gate{"All 3 Clinical Safety Gates Passed?"}
+
+    G1 -->|"Grounded"| Gate
+    G2 -->|"Complete"| Gate
+    G3 -->|"Confident"| Gate
+
+    Pass(["Release Verified Summary to Patient Portal"])
+    Fail(["Withhold Summary & Escalate to Radiologist Review Queue"])
+
+    Gate ==>|"PASS: Verified Clinically Safe"| Pass
+    Gate -.->|"FAIL: Hallucination, Omission, or Low Confidence"| Fail
+
+    classDef inputNode fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef tier1Node fill:#ede9fe,stroke:#6d28d9,stroke-width:2px,color:#2e1065
+    classDef parserNode fill:#ccfbf1,stroke:#0d9488,stroke-width:2px,color:#115e59
+    classDef guardNode fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
+    classDef gateNode fill:#f8fafc,stroke:#334155,stroke-width:2.5px,color:#0f172a
+    classDef passNode fill:#dcfce7,stroke:#15803d,stroke-width:2.5px,color:#14532d
+    classDef failNode fill:#fee2e2,stroke:#b91c1c,stroke-width:2.5px,color:#7f1d1d
+
+    class Source inputNode
+    class LoRA,Draft tier1Node
+    class Parser,RefState parserNode
+    class G1,G2,G3 guardNode
+    class Gate gateNode
+    class Pass passNode
+    class Fail failNode
+
+    style Tier1 fill:#f5f3ff,stroke:#8b5cf6,stroke-width:1.5px,stroke-dasharray: 5 5,color:#4c1d95
+    style RefPipe fill:#f0fdfa,stroke:#14b8a6,stroke-width:1.5px,stroke-dasharray: 5 5,color:#134e4a
+    style Tier2 fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#78350f
 ```
+
+### Two-Tier Guardrail Architecture
+
+Tier 1 generates candidate summaries using `google/flan-t5-base` with custom LoRA ($r=8, \alpha=32$) under deterministic beam search ($k=2$, length penalty $1.0$). Stochastic sampling is disabled entirely to guarantee consistent, repeatable clinical translations. Before reaching the patient portal, Tier 2 intercepts each draft through three automated checks: an entity grounding filter (RadGraph/UMLS) enforcing $E_{\text{summary}} \subseteq E_{\text{source}}$ to block hallucinations, an acute watchlist preventing omissions of critical pathologies (like pneumothoraces or tube malpositions), and a confidence gate requiring minimum token probabilities of $\tau \ge 0.85$. Summaries clearing all three gates release automatically; any flagged case routes directly to an attending radiologist for review.
+
+### Operational & Hardware Sizing
+
+Inference requires just $1.69\text{ GB}$ of VRAM, allowing deployment on budget cloud GPUs (NVIDIA T4) or standard consumer hardware (RTX 3060/4060) without multi-GPU overhead. Generating at $307.8\text{ tokens/second}$ yields an average latency under $0.25\text{ seconds}$ per report, easily supporting real-time hospital portal workloads.
+## Dependencies & Execution Guide
+
+All experiments were implemented using PyTorch modules, without any high-level library wrappers.
+
+### Dependencies & Requirements
+
+| Component | Minimum Version & Role |
+| :--- | :--- |
+| **Python / CUDA** | Python $\ge 3.10$ with CUDA 12.1 (`bfloat16` support) |
+| **PyTorch (`torch`)** | $\ge 2.1.0$ — custom LoRA modules, loss masking, and DDP |
+| **Hugging Face (`transformers`, `datasets`)** | $\ge 4.38.0$ / $\ge 2.18.0$ — `flan-t5-base` weights and `LaymanRRG` data |
+| **Evaluation (`evaluate`, `rouge-score`)** | $\ge 0.4.1$ / $\ge 0.1.2$ — ROUGE-1, ROUGE-2, and ROUGE-L metrics |
+| **Utilities (`sentencepiece`, `matplotlib`)** | $\ge 0.2.0$ / $\ge 3.8.0$ — T5 tokeniser backend and loss plotting |
+
+#### Automated Installation Script
+
+Below is a script that creates a virtual environment, and installs the dependencies needed to run the project.
+
+```bash
+conda create -n clinical-flan python=3.10 -y
+conda activate clinical-flan
+pip install torch transformers datasets evaluate rouge-score sentencepiece matplotlib
+```
+
+### Reproducibility & CLI Execution
+
+All pipelines execute directly from `recognition/FLAN-T5-RRG-s4436813/`:
+| Pipeline Stage | CLI Command | Generated Artifacts & Telemetry |
+| :--- | :--- | :--- |
+| **1. Zero-Shot Eval** | `python predict.py --mode zero_shot --num_samples 500` | Baseline ROUGE (`Val_Full` & `Val_Unseen`), VRAM & throughput |
+| **2. Train LoRA (1 GPU)** | `python train.py --mode lora` | Saves `checkpoints/lora.pt` and plots `lora_loss.png` |
+| **3. Train LoRA (DDP)** | `torchrun --nproc_per_node=2 train.py --mode lora` | Multi-GPU Distributed Data Parallel training |
+| **4. Train Full FT** | `python train.py --mode full_finetune` | Saves `checkpoints/full_finetune.pt` ($100\%$ weights) |
+| **5. Evaluate LoRA** | `python predict.py --mode lora --checkpoint checkpoints/lora.pt --num_samples 500` | LoRA ROUGE scores, latency telemetry & 4-case safety autopsy |
+| **6. Evaluate Full FT** | `python predict.py --mode full_finetune --checkpoint checkpoints/full_finetune.pt --num_samples 500` | Full FT ROUGE scores & comparative safety autopsy |
+
+
+
+## Artificial Intelligence Usage Disclosure

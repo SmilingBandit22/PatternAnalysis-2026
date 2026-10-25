@@ -1,3 +1,13 @@
+"""
+COMP3710 Pattern Analysis - Final Assessment Project
+Title: Clinical Radiology Report Summarisation with FLAN-T5 and Custom LoRA
+Author: Aidan Fassy
+Student ID: 44368133
+File: predict.py
+Description: Autoregressive beam search generation, ROUGE metric benchmarking,
+             inference throughput telemetry, and clinical safety autopsy extraction.
+"""
+
 import argparse
 import os
 import time
