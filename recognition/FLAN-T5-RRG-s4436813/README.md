@@ -68,6 +68,7 @@ The `ACL 2025 BioLaySumm Subtask 2.1` dataset was used as a benchmark. This data
 The dataset has split sizes of $150,454$ for training, $10,000$ for validation and $10,537$ for testing.
 
 ### Preprocessing & Tokenisation
+
 In `dataset.py`, each input report is prepended with the task prompt `"Translate this radiology report into plain language for the patient: "` to activate FLAN-T5's instruction-following mode. Source narratives are capped at $512$ tokens, which covers over $95\%$ of full clinical reports without truncation, while target summaries are limited to $128$ tokens.
 
 To prevent padding tokens from skewing training, `LaymanRRGDataSet.__getitem__` handles target padding explicitly. While T5 assigns `pad_token_id = 0`, PyTorch's `CrossEntropyLoss` expects `ignore_index = -100` to mask tokens out of the loss calculation:
@@ -129,6 +130,17 @@ All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, m
 
 ### Training Dynamics
 ![LoRA Loss Curve](results/lora_loss.png)
+Figure 3: Training and Validation cross-entropy loss trajectories over $18,806$ steps on and NVIDIA A100 GPU.
+
+Training converged smoothly over a single epoch, consisting of $18,806$ optimisation steps, using a batch sizr of $8$. Cross-entropy loss was began at rougly ~$2.75$ on intial batches and steadily decreased to the final training loss of $1.0451$, witht the validation loss reaching $0.7289$.
+
+Notably, validation loss remained consistently lower than training loss throughout training. This can be attributed due to active regularisation; during training passes, a dropout rate of $p=0.05$ is injected into the LoRA bottleneck to prevent over-reliance on specific token co-occurrences. During evaluation passes, the dropout is completely disabled, allowing the full deterministic capacity of the adapted network to be used without the injected noise. The active regularisation explains the difference between the losses.
+
+The final validation loss of $0.7289$ corresponds to a perplexity of:
+
+$$ e^{0.7289} \approx 2.07$$
+
+Across the vocabulary of $32,128$ tokens, this indicated that the model is on average, uncertain between barely two candidate tokens at each autoregressive decoding step.
 ### Takeaways
 ## Clinical Safety
 ## Model Deployment Recommendations
