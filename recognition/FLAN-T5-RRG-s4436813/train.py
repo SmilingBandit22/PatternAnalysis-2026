@@ -183,6 +183,19 @@ def main() -> None:
     train_step_history: list[tuple[int, float]] = list()
     val_step_history: list[tuple[int, float]]   = list()
 
+    # Rank 0 GPU is the 'leader'
+    if not rank:
+        trainable, total, pct = model.count_parameters()
+        print(f"[{args.mode.upper()}] Trainable: {trainable:,}" 
+              + f" / Total: {total:,} ({pct:.2f}%)")
+
+    if distributed:
+        model = DDP(model, device_ids=[device.index])
+
+    optimiser = torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad], lr=lr
+    )
+
     for epoch in range(EPOCHS):
         if distributed and hasattr(train_loader.sampler, "set_epoch"):
             train_loader.sampler.set_epoch(epoch)

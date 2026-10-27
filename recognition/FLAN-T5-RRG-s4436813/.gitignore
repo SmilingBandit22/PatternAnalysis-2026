@@ -5,3 +5,8 @@ __pycache__/
 *.bin
 *.safetensors
 checkpoints/
+results/
+CONTEXT.md
+NOTES.md
+*.pdf
+
