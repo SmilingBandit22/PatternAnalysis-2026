@@ -2,19 +2,19 @@
 
 ## Executive Summary
 
-Within healthcare and medicine, radiological reports have the reputation of being extremely technical, filled with extensive medical jargon and very unfriendly for an unskilled person to read. As a result, patients who desire transparency when it comes to their healthcare, are often left anxious, confused and prone to misinterpretations. It stands that there is a need for a layperson to understand and interpret their report correctly.
+Within healthcare and medicine, radiological reports have the reputation of being extremely technical, filled with extensive medical jargon, and very unfriendly for an unskilled person to read. As a result, patients who desire transparency when it comes to their healthcare are often left anxious, confused, and prone to misinterpretations. It stands that there is a need for a layperson to understand and interpret their report correctly.
 
-It is for this reason that the objective of this project is to build a sequence-to-sequence NLP prototype that translates jargon-heavy complex diagnostic findings into plain, accurate and simple layperson accessible language – ideally at the 6th grade level. This project uses the ACL 2025 BioLaySum (LaymanRRG) open-source benchmark dataset.
+It is for this reason that the objective of this project is to build a sequence-to-sequence NLP prototype that translates jargon-heavy, complex diagnostic findings into plain, accurate, and simple layperson-accessible language – ideally at the 6th-grade level. This project uses the ACL 2025 BioLaySumm (LaymanRRG) open-source benchmark dataset.
 
-The `google/flan-t5-base` model (~248M parameters) is used, using a custom PyTorch Low-Rank Adaptation (LoRA) layer, which is injected into the attention query ($W_q$) and the value ($W_v$) projections. A goal of this investigation was also to avoid heavy parameter fine-tuning by freezing $99.64\%$ of the base weights and only updating a lightweight rank-8 bottleneck (~$884\text{K}$ parameters, $0.36\%$ of total).
+The `google/flan-t5-base` model (~248M parameters) is used with a custom PyTorch Low-Rank Adaptation (LoRA) layer, which is injected into the attention query ($W_q$) and value ($W_v$) projections. A goal of this investigation was also to avoid heavy parameter fine-tuning by freezing $99.64\%$ of the base weights and only updating a lightweight rank-8 bottleneck (~$884\text{K}$ parameters, $0.36\%$ of total).
 
-However, a problem still remains: standard metrics like ROUGE-1, ROUGE-2 and ROUGE-L measure surface n-gram overlap, not the underlying clinical truth. As a result of this, a model can subvert the testing objectives by memorising normal radiological findings (e.g. "lungs are clear, no acute abnormality") while omitting crucial clinical details, some of these can be as severe as hallucinating non-existent tumors.
+However, a problem still remains: standard metrics like ROUGE-1, ROUGE-2, and ROUGE-L measure surface n-gram overlap, not the underlying clinical truth. As a result of this, a model can subvert the testing objectives by memorising normal radiological findings (e.g., "lungs are clear, no acute abnormality") while omitting crucial clinical details, some of which can be as severe as hallucinating non-existent tumors.
 
-So the current investigation is to evaluate whether LoRA fine-tuning is able to genuinely improve factual clinical fidelity over an untuned zero-shot baseline, or if it simply increases superficial linguistic fluency on memorised screening templates across both full, and deduplicated splits.
+So, the current investigation is to evaluate whether LoRA fine-tuning is able to genuinely improve factual clinical fidelity over an untuned zero-shot baseline, or if it simply increases superficial linguistic fluency on memorised screening templates across both full and deduplicated splits.
 
 ## Architecture & Working Principles
 
-### FLAN-T5: Encoder-Decoder architecture
+### FLAN-T5: Encoder-Decoder Architecture
 
 A FLAN-T5 model is fundamentally an *Encoder-Decoder* architecture, which provides a distinct architectural advantage over *decoder-only* causal models (such as GPT-2). Radiological narratives are scattered, non-linear, and conditional; a radiologist might note an acute abnormality in the first sentence, describe unremarkable anatomy for several lines, and then introduce critical diagnostic context in the final impression. Unlike decoder-only models that process text strictly left-to-right, FLAN-T5's bidirectional encoder allows every token to attend to all other tokens simultaneously without a causal mask. This allows the model to build a complete, contextual representation of the entire clinical case before any summary text is produced.
 
@@ -35,24 +35,25 @@ The low-rank update is handled by the parallel adapter path. The down-projection
 ### Model Architecture 
 ![System Architecture](architecture.png)
 Figure 1: Diagram of the FLAN-T5 Model Architecture
+
 #### FLAN-T5 Backbone
 
 The base model used is `google/flan-t5-base` (~248M parameters). The architecture consists of 12 encoder blocks and 12 decoder blocks with an internal model dimension of $d_{\text{model}} = 768$, 12 attention heads ($d_k = d_v = 64$), a feed-forward expansion dimension of $d_{\text{ff}} = 2048$, Pre-LN RMSNorm, and relative position biases. 
 
-The directional encoder has the function of capturing the complete report without any causal masking, this is critical because radiological reports are interdependent across disparate sections of text. The autoregressive decoder generates patient-facing words sequentially, continually referencing the encoder's memory states ($H_{\text{enc}}$) via the cross attention mechanism. Cross attention is crucial, because it ensures that the plain-language output is grounded in actual medical observations.
+The bidirectional encoder has the function of capturing the complete report without any causal masking; this is critical because radiological reports are interdependent across disparate sections of text. The autoregressive decoder generates patient-facing words sequentially, continually referencing the encoder's memory states ($H_{\text{enc}}$) via the cross-attention mechanism. Cross-attention is crucial because it ensures that the plain-language output is grounded in actual medical observations.
 
 ![FLAN-T5 Sequence-to-Sequence Architecture](flan_t5_backbone.png)
 Figure 2: Diagram of the T5 Backbone of the project
 
-#### Custom LoRA layer
+#### Custom LoRA Layer
 Rather than modifying all of the attention projections, the custom `LoRALinear` layers are injected into the query ($W_q$) and value ($W_v$) projections across:
-* **Encoder Self-Attention:** Steers attention across the scattered clinical findings, to build a rich contextual representation.
-* **Decoder Self-Attention:** Ensures that there is linguistic fluency, sentence structure and the layperson tone across generated summary tokens.
-* **Decoder Cross-Attention:** The core translational bridge. Allows the decoder to query important technical details in the encoder ($H_{\text{enc}}$) and extract the plain language equivalents.
+* **Encoder Self-Attention:** Steers attention across the scattered clinical findings to build a rich contextual representation.
+* **Decoder Self-Attention:** Ensures that there is linguistic fluency, sentence structure, and a layperson tone across generated summary tokens.
+* **Decoder Cross-Attention:** The core translational bridge. Allows the decoder to query important technical details in the encoder ($H_{\text{enc}}$) and extract the plain-language equivalents.
 
-#### Parameters Counts & Optimiser Memory Analysis
-**Base Model Parameters:** $247,577,856$ (frozen, `requires_grad = False`) 
-**Trainable LoRA Parameters:** $884,736$ ($0.36\%$ of total)
+#### Parameter Counts & Optimiser Memory Analysis
+**Base Model Parameters:** $247,577,856$ (frozen, `requires_grad = False`)  
+**Trainable LoRA Parameters:** $884,736$ ($0.36\%$ of total)  
 **Total Parameters:** $248,462,592$
 
 Because $99.64\%$ of the weights are frozen, the AdamW optimizer only allocates gradient history, momentum ($m_t$), and second-moment variance ($v_t$) states for 884K parameters (~$7$ MB) instead of 248M parameters (~$2$ GB). This reduced peak training VRAM on an A100 GPU from $10.29$ GB during full fine-tuning down to $6.59$ GB with LoRA.
@@ -61,9 +62,9 @@ Because $99.64\%$ of the weights are frozen, the AdamW optimizer only allocates 
 ### Dataset
 The `ACL 2025 BioLaySumm Subtask 2.1` dataset was used as a benchmark. This dataset consists of two distinct columns:
 * `radiology_report`: This is the source column, which serves as the expert report, written by radiologists.
-* `layman_report`: This is the target column. It is a plain-language summary, aimed to be around the 6th-grade reading level.
+* `layman_report`: This is the target column. It is a plain-language summary, aimed at around the 6th-grade reading level.
 
-The dataset has split sizes of $150,454$ for training, $10,000$ for validation and $10,537$ for testing.
+The dataset has split sizes of $150,454$ for training, $10,000$ for validation, and $10,537$ for testing.
 
 ### Preprocessing & Tokenisation
 
@@ -76,9 +77,9 @@ labels[labels == self._tokeniser.pad_token_id] = -100
 ```
 ### Leakage Prevention
 
-A major issue with routine radiology data is that normal screening reports frequently repeat identical template phrasing (e.g. *"Lungs are clear. No acute cardiopulmonary abnormality."*). If these exact templates leak into both the training and validation sets, a model can easily game lexical metrics like ROUGE by simply memorising common phrases rather than learning how to actually translate clinical text.
+A major issue with routine radiology data is that normal screening reports frequently repeat identical template phrasing (e.g., *"Lungs are clear. No acute cardiopulmonary abnormality."*). If these exact templates leak into both the training and validation sets, a model can easily game lexical metrics like ROUGE by simply memorising common phrases rather than learning how to actually translate clinical text.
 
-To catch this, `load_and_split_dataset` normalises each report and computes its SHA-256 hash across the training split. Which is then evaluated across two validation sets: `Val_Full`, which serves as the official untouched validation split (10,000 cases) for standard competition benchmarking, and `Val_Unseen`, a filtered subset containing only cases whose normalised text never appeared anywhere in the training data, allowing us to directly test whether the model is genuinely generalising or just memorising templates.
+To catch this, `load_and_split_dataset` normalises each report and computes its SHA-256 hash across the training split. The model is then evaluated across two validation sets: `Val_Full`, which serves as the official untouched validation split (10,000 cases) for standard competition benchmarking, and `Val_Unseen`, a filtered subset containing only cases whose normalised text never appeared anywhere in the training data, allowing us to directly test whether the model is genuinely generalising or just memorising templates.
 
 ## Midpoint Feasibility Review
 
@@ -132,13 +133,14 @@ Figure 3: Training and Validation cross-entropy loss trajectories over $18,806$ 
 
 Training converged smoothly over a single epoch, consisting of $18,806$ optimisation steps, using a batch size of $8$. Cross-entropy loss began at roughly $2.75$ on initial batches and steadily decreased to the final training loss of $1.0451$, with the validation loss reaching $0.7289$.
 
-Notably, validation loss remained consistently lower than training loss throughout training. This can be attributed due to active regularisation; during training passes, a dropout rate of $p=0.05$ is injected into the LoRA bottleneck to prevent over-reliance on specific token co-occurrences. During evaluation passes, the dropout is completely disabled, allowing the full deterministic capacity of the adapted network to be used without the injected noise. The active regularisation explains the difference between the losses.
+Notably, validation loss remained consistently lower than training loss throughout training. This can be attributed to active regularisation; during training passes, a dropout rate of $p=0.05$ is injected into the LoRA bottleneck to prevent over-reliance on specific token co-occurrences. During evaluation passes, the dropout is completely disabled, allowing the full deterministic capacity of the adapted network to be used without the injected noise. The active regularisation explains the difference between the losses.
 
 The final validation loss of $0.7289$ corresponds to a perplexity of:
 
 $$ e^{0.7289} \approx 2.07$$
 
-Across the vocabulary of $32,128$ tokens, this indicated that the model is on average, uncertain between barely two candidate tokens at each autoregressive decoding step.
+Across the vocabulary of $32,128$ tokens, this indicates that the model is, on average, uncertain between barely two candidate tokens at each autoregressive decoding step.
+
 ### Takeaways
 
 By restricting parameter updates strictly to the low-rank attention projections ($W_q$ and $W_v$), our custom LoRA implementation trained just $884{,}736$ parameters—a mere $0.36\%$ of the $248\text{M}$ parameter backbone. Despite updating less than $0.4\%$ of the network, LoRA captured $96.6\%$ of Full Fine-Tuning's ROUGE-1 ($0.7066$ vs $0.7317$) and $93.0\%$ of its ROUGE-2 ($0.5090$ vs $0.5474$). Crucially, freezing $99.64\%$ of the model eliminated the massive AdamW optimiser states required by full fine-tuning, cutting peak training VRAM from $10.29\text{ GB}$ down to $6.59\text{ GB}$. This $36\%$ reduction brings the entire training footprint comfortably below our $8.0\text{ GB}$ feasibility ceiling, proving that high-quality clinical adaptation is viable on consumer-tier hardware.
@@ -147,9 +149,9 @@ In comparison to the untuned Zero-Shot baseline, LoRA yielded dramatic relative 
 
 ## Clinical Safety
 
-In biomedical natural language generation, standard lexical overlap metrics ($n$-gram ROUGE) serve as poor proxies for clinical safety. Because routine radiological reports frequently contain standard findings (e.g "no pathologies present") a generative model can attain deceptively high ROUGE scores by reciting fluent negative templates while hallucinating acute findings or omitting critical life-threatening pathologies. 
+In biomedical natural language generation, standard lexical overlap metrics ($n$-gram ROUGE) serve as poor proxies for clinical safety. Because routine radiological reports frequently contain standard findings (e.g., "no pathologies present"), a generative model can attain deceptively high ROUGE scores by reciting fluent negative templates while hallucinating acute findings or omitting critical life-threatening pathologies. 
 
-To evaluate factual clinical fidelity beyond surface statistics, four audits were conducted across validation cases (only three are shown below for brevity), technical jargon simplification, and acute airway placement:
+To evaluate factual clinical fidelity beyond surface statistics, four audits were conducted across validation cases (only three are shown below for brevity) covering anatomical lines, technical jargon simplification, and acute airway placement:
 
 | Case # & Focus | Source Report & Gold Standard | Custom LoRA Prediction ($r=8$) | Full Fine-Tuning Prediction | Clinical Verdict |
 | :--- | :--- | :--- | :--- | :--- |
@@ -159,33 +161,33 @@ To evaluate factual clinical fidelity beyond surface statistics, four audits wer
 
 ### Interpretation of Case Study
 
-The results of the audit show a characteristic vulnerability of language models within a clinical context. Full Fine-Tuning achieved higher ROUGE scores ($0.7317$ vs. $0.7066$), but produced a fatal medical hallucination. In case 3, the Full FT inserted "correctly positioned" within the output.
+The results of the audit show a characteristic vulnerability of language models within a clinical context. Full Fine-Tuning achieved higher ROUGE scores ($0.7317$ vs. $0.7066$), but produced a fatal medical hallucination. In Case 3, the Full FT model inserted "correctly positioned" into the output.
 
-Updating all of the $248\text{M}$ parameters meant that FFT was prone to memorising common templates instead of sticking to the source text. Many of the reports within the training data described properly placed lines, which meant that the unconstrained model defaulted "correctly positioned", potentially conveying dangerous misinformation to a patient.
+Updating all of the $248\text{M}$ parameters meant that FFT was prone to memorising common templates instead of sticking to the source text. Many of the reports within the training data described properly placed lines, which meant that the unconstrained model defaulted to "correctly positioned", potentially conveying dangerous misinformation to a patient.
 
-As a contrast, the low-rank bottleneck of LoRA prevents hallucinations by acting like a built-in regulariser. By freezing the base network and only tuning $W_q$ and $W_v$, LoRA was able to stay grounded within the encoder's hidden representations. There were no detected instances of dangerous clinical hallucinations.
+In contrast, the low-rank bottleneck of LoRA prevents hallucinations by acting like a built-in regulariser. By freezing the base network and only tuning $W_q$ and $W_v$, LoRA was able to stay grounded within the encoder's hidden representations. There were no detected instances of dangerous clinical hallucinations.
 
 ## Recommended Model Deployment
 
-In real-world deployment, the prevailing recommendation would be deploying the **FLAN-T5 base model, with the custom LoRA ($r = 8$)**, over the Full Fine-Tuning checkpoint.
+In real-world deployment, the prevailing recommendation would be deploying the **FLAN-T5 base model with the custom LoRA ($r = 8$)** over the Full Fine-Tuning checkpoint.
 
-While the FFT attained higher ROUGE scores ($+0.025$), LoRA captures over $96\%$ of the lexical performance, with a staggering $36\%$ less VRAM ($6.59\text{ GB}$ vs $10.29\text{ GB}$). The previous point is an aside note, because the main consideration was ensuring that the output was clinically accurate, without producing any erroneous hallucinations which are not based on the data. The low-rank bottleneck of LoRA acted as a regulariser against template memorisation. 
+While the FFT attained higher ROUGE scores ($+0.025$), LoRA captures over $96\%$ of the lexical performance, with a staggering $36\%$ less VRAM ($6.59\text{ GB}$ vs $10.29\text{ GB}$). The previous point is an aside, because the main consideration was ensuring that the output was clinically accurate, without producing any erroneous hallucinations that are not based on the data. The low-rank bottleneck of LoRA acted as a regulariser against template memorisation. 
 
 However, there is a very important caveat to the deployment. Generative language models remain non-deterministic, so no sequence-to-sequence model should be deployed completely unmonitored to patients. It is for this reason that the below framework is recommended for real-world deployment:
 
 ```mermaid
 flowchart TD
-    Source(["Technical Radiology Report (Clinical Source Narrative)"])
+    Source(["Technical Radiology Report\n(Clinical Source Narrative)"])
 
     subgraph Tier1["Tier 1: Parameter-Efficient Neural Generation"]
-        LoRA["FLAN-T5-Base + Custom LoRA (r = 8, α = 32) | Deterministic Beam Search (k = 2)"]
-        Draft["Candidate Plain-Language Summary + Token Log-Probabilities"]
+        LoRA["FLAN-T5-Base + Custom LoRA (r = 8, α = 32)\nDeterministic Beam Search (k = 2)"]
+        Draft["Candidate Plain-Language Summary\n+ Token Log-Probabilities"]
         LoRA --> Draft
     end
 
     subgraph RefPipe["Deterministic Clinical Reference Extraction"]
-        Parser["Biomedical Entity & Acuity Parser (UMLS / RadGraph)"]
-        RefState["Extracted Source Entities (E_source) & High-Acuity Pathology Flags"]
+        Parser["Biomedical Entity & Acuity Parser\n(UMLS / RadGraph)"]
+        RefState["Extracted Source Entities (E_source)\n& High-Acuity Pathology Flags"]
         Parser --> RefState
     end
 
@@ -193,9 +195,9 @@ flowchart TD
     Source --> Parser
 
     subgraph Tier2["Tier 2: Automated Clinical Safety Verification"]
-        G1["1. Entity Grounding Check — Verify E_summary ⊆ E_source (Zero Hallucinations)"]
-        G2["2. Acute Omission Watchlist — Verify 0 Missed Critical Findings (e.g. Malposition, Pneumothorax)"]
-        G3["3. Generation Confidence Filter — Verify Minimum Token Probability τ ≥ 0.85"]
+        G1["1. Entity Grounding Check\nVerify E_summary ⊆ E_source\n(Zero Hallucinations)"]
+        G2["2. Acute Omission Watchlist\nVerify 0 Missed Critical Findings\n(e.g. Malposition, Pneumothorax)"]
+        G3["3. Generation Confidence Filter\nVerify Minimum Token Probability\nτ ≥ 0.85"]
     end
 
     Draft --> G1
@@ -204,17 +206,17 @@ flowchart TD
     RefState -.->|"Ground-Truth Entities"| G1
     RefState -.->|"Required Acute Entities"| G2
 
-    Gate{"All 3 Clinical Safety Gates Passed?"}
+    Gate{"All 3 Clinical Safety\nGates Passed?"}
 
     G1 -->|"Grounded"| Gate
     G2 -->|"Complete"| Gate
     G3 -->|"Confident"| Gate
 
-    Pass(["Release Verified Summary to Patient Portal"])
-    Fail(["Withhold Summary & Escalate to Radiologist Review Queue"])
+    Pass(["Release Verified Summary\nto Patient Portal"])
+    Fail(["Withhold Summary & Escalate\nto Radiologist Review Queue"])
 
-    Gate ==>|"PASS: Verified Clinically Safe"| Pass
-    Gate -.->|"FAIL: Hallucination, Omission, or Low Confidence"| Fail
+    Gate ==>|"PASS: Verified Safe"| Pass
+    Gate -.->|"FAIL: Safety Trigger"| Fail
 
     classDef inputNode fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
     classDef tier1Node fill:#ede9fe,stroke:#6d28d9,stroke-width:2px,color:#2e1065
@@ -261,7 +263,7 @@ All experiments were implemented using PyTorch modules, without any high-level l
 
 #### Automated Installation Script
 
-Below is a script that creates a virtual environment, and installs the dependencies needed to run the project.
+Below is a script that creates a virtual environment and installs the dependencies needed to run the project.
 
 ```bash
 conda create -n clinical-flan python=3.10 -y

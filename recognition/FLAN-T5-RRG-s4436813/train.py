@@ -60,16 +60,21 @@ def setup_distributed() -> tuple[bool, int, torch.device]:
 
 def run_epoch(model: nn.Module, loader: DataLoader, device: torch.device,
                optimiser: Optional[torch.optim.Optimizer] = None,
-                 max_steps: int = -1) -> float:
+               max_steps: int = -1,
+               val_loader: Optional[DataLoader] = None,
+               eval_interval: int = 1000) -> tuple[float, list[tuple[int, float]], list[tuple[int, float]]]:
     """
-    Runs a single pass over the DataLoader.
-    Trains if there is an optimiser, otherwise evals.
+    Runs a pass over the DataLoader.
+    If optimiser is provided, trains the model and records step-level train/val loss trajectories.
+    Otherwise, evaluates and returns mean loss.
     """
     training: bool = optimiser is not None
     model.train() if training else model.eval()
 
     total_loss: float = 0.0
     steps: int = 0
+    t_history: list[tuple[int, float]] = []
+    v_history: list[tuple[int, float]] = []
 
     # Send everything in the batch loader to GPUs
     for batch in loader:
@@ -82,18 +87,31 @@ def run_epoch(model: nn.Module, loader: DataLoader, device: torch.device,
             outputs = model(**batch)
             loss: torch.Tensor = outputs.loss
 
-        # Backpropogation and optimisation
+        # Backpropagation and optimisation
         if training:
             optimiser.zero_grad()
             loss.backward()
             optimiser.step()
+            steps += 1
+            total_loss += loss.item()
 
-        # Accumulate losses and increment the steps
-        total_loss += loss.item()
-        steps += 1
+            if steps % 100 == 0:
+                t_history.append((steps, loss.item()))
+
+            # Periodic validation evaluation during training pass
+            if val_loader is not None and steps % eval_interval == 0:
+                val_loss, _, _ = evaluate(model=model, loader=val_loader, device=device, max_steps=100)
+                v_history.append((steps, val_loss))
+                model.train()
+        else:
+            total_loss += loss.item()
+            steps += 1
+
         if max_steps > 0 and steps >= max_steps:
             break
-    return total_loss / max(steps, 1)
+
+    mean_loss = total_loss / max(steps, 1)
+    return mean_loss, t_history, v_history
 
 def save_checkpoint(model: nn.Module, mode: str, out: str = OUT_DIR) -> None:
     """
@@ -109,33 +127,39 @@ def save_checkpoint(model: nn.Module, mode: str, out: str = OUT_DIR) -> None:
         }
     torch.save(state, os.path.join(out, f"{mode}.pt"))
 
-def plot_loss(t_loss: list[float], v_loss: list[float], mode: str) -> None:
+def plot_loss(t_history: list[tuple[int, float]], v_history: list[tuple[int, float]], mode: str) -> None:
     """
-    Saves training and validation loss curves.
+    Saves step-level training and validation loss curves.
     """
-    plt.figure()
-    plt.plot(t_loss, label="Train")
-    plt.plot(v_loss, label="Val")
-    plt.xlabel("Epoch")
+    plt.figure(figsize=(8, 5))
+    if t_history:
+        t_steps, t_losses = zip(*t_history)
+        plt.plot(t_steps, t_losses, label="Train Loss", alpha=0.6)
+    if v_history:
+        v_steps, v_losses = zip(*v_history)
+        plt.plot(v_steps, v_losses, label="Val Loss", marker="o", linewidth=2.0)
+    plt.xlabel("Optimization Steps")
     plt.ylabel("Loss")
+    plt.title(f"{mode.capitalize()} Training Dynamics")
     plt.legend()
-    plt.savefig(os.path.join(OUT_DIR, f"{mode}_loss.png"))
+    plt.savefig(f"{mode}_loss.png")
     plt.close()
 
 # ----------------- Training & Validations-----------------
 
 def train_single_epoch(model: nn.Module, loader: DataLoader,
                        optimiser: torch.optim.Optimizer, device: torch.device,
-                       max_steps: int = -1) -> float:
+                       max_steps: int = -1,
+                       val_loader: Optional[DataLoader] = None) -> tuple[float, list[tuple[int, float]], list[tuple[int, float]]]:
     """
-    Runs a single epoch of training. Returns the mean training loss.
+    Runs a single epoch of training. Returns the mean training loss and step-level history.
     """
     return run_epoch(model=model, loader=loader, device=device,
-                     optimiser=optimiser, max_steps=max_steps)
+                     optimiser=optimiser, max_steps=max_steps, val_loader=val_loader)
 
 @torch.no_grad()
 def evaluate(model: nn.Module, loader: DataLoader,
-              device: torch.device, max_steps: int = -1) -> float:
+              device: torch.device, max_steps: int = -1) -> tuple[float, list[tuple[int, float]], list[tuple[int, float]]]:
     """
     Validation step, returns the mean validation loss.
     """
@@ -156,37 +180,24 @@ def main() -> None:
           else LearningRates.FINETUNE)
 
     model = ClinicalFlanT5(mode=args.mode).to(device=device)
-    train_losses: list[float] = list()
-    val_losses: list[float]   = list()
-
-    # Rank 0 GPU is the 'leader'
-    if not rank:
-        trainable, total, pct = model.count_parameters()
-        print(f"[{args.mode.upper()}] Trainable: {trainable:,}" 
-              + f" / Total: {total:,} ({pct:.2f}%)")
-
-    if distributed:
-        model = DDP(model, device_ids=[device.index])
-
-    optimiser = torch.optim.AdamW(
-        [p for p in model.parameters() if p.requires_grad], lr=lr
-    )
+    train_step_history: list[tuple[int, float]] = list()
+    val_step_history: list[tuple[int, float]]   = list()
 
     for epoch in range(EPOCHS):
         if distributed and hasattr(train_loader.sampler, "set_epoch"):
             train_loader.sampler.set_epoch(epoch)
 
-        t_loss = train_single_epoch(
+        t_loss, t_hist, v_hist = train_single_epoch(
             model=model, loader=train_loader, optimiser=optimiser,
-            device=device, max_steps=args.max_steps
+            device=device, max_steps=args.max_steps, val_loader=val_full_loader
         )
-        v_loss = evaluate(
+        v_loss, _, _ = evaluate(
             model=model, loader=val_full_loader, 
             device=device, max_steps=args.max_steps
         )
 
-        train_losses.append(t_loss)
-        val_losses.append(v_loss)
+        train_step_history.extend(t_hist)
+        val_step_history.extend(v_hist)
 
         if not rank:
             vram: float = (torch.cuda.max_memory_allocated() / (1024 ** 3) 
@@ -198,7 +209,7 @@ def main() -> None:
     if not rank:
         raw_model = model.module if distributed else model
         save_checkpoint(raw_model, args.mode, out=OUT_DIR)
-        plot_loss(train_losses, val_losses, args.mode)
+        plot_loss(train_step_history, val_step_history, args.mode)
 
     if distributed:
         dist.destroy_process_group()
