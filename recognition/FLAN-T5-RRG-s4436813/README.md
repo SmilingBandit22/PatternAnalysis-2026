@@ -64,7 +64,7 @@ The `ACL 2025 BioLaySumm Subtask 2.1` dataset was used as a benchmark. This data
 * `radiology_report`: This is the source column, which serves as the expert report, written by radiologists.
 * `layman_report`: This is the target column. It is a plain-language summary, aimed at around the 6th-grade reading level.
 
-The dataset has split sizes of $150,454$ for training, $10,000$ for validation, and $10,537$ for testing.
+The dataset has split sizes of $150,454$ for training, $10,000$ for validation, and $10,537$ for testing. Because the official shared-task test split is reserved for blind workshop evaluation, and in accordance with the course benchmarking guidelines, all quantitative and clinical safety evaluations are performed on the held-out validation split across both its full (`Val_Full`) and SHA-256 deduplicated (`Val_Unseen`) cohorts.
 
 ### Preprocessing & Tokenisation
 
@@ -113,11 +113,12 @@ Key technical risks and mitigations include:
 * **VRAM Out-of-Memory:** Full fine-tuning risks OOM errors due to AdamW optimizer states across 248M parameters on 512-token sequences. Custom LoRA is implemented as the primary strategy to restrict updates to $<0.4\%$ of parameters.
 * **Boilerplate Inflation:** High ROUGE scores masking factual hallucinations or omissions of acute pathologies. Addressed through qualitative clinical safety autopsies.
 * **Computing Budget:** $\sim 3$ GPU hours for data auditing and pipeline smoke tests; $\sim 8\text{--}10$ GPU hours total for training and benchmarking runs via Slurm on Rangpur.
+* **Next Planned Experiment:** Launch a 1-epoch run of the custom PyTorch LoRA training script on Rangpur to verify monotonic loss decrease, tracking peak VRAM allocation and step latency.
 * **Workable Fallback:** If memory allocation issues persist under full fine-tuning, reduce batch size to 4 with 4 gradient accumulation steps under FP16/bfloat16. If resource constraints remain intractable, fall back to the $\sim 60\text{M}$ parameter `flan-t5-small` model as the comparative baseline while retaining `flan-t5-base` with LoRA as the primary architecture.
 
 ## Experimental Results & Benchmarking
 
-All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, mixed-precision `bfloat16`, a batch size of 8, and beam search decoding ($k=2$). We benchmarked three distinct setups: an untuned Zero-Shot baseline, the custom PyTorch LoRA model ($r=8, \alpha=32$), and a Full Fine-Tuning run.
+All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, mixed-precision `bfloat16`, a batch size of 8, and beam search decoding ($k=2$). We benchmarked three distinct setups: an untuned Zero-Shot baseline, the custom PyTorch LoRA model ($r=8, \alpha=32$), and a Full Fine-Tuning run. Both trainable configurations were optimised using AdamW (`train.py`), with learning rates set to $\text{LR} = 3 \times 10^{-4}$ for LoRA and $\text{LR} = 3 \times 10^{-5}$ for Full Fine-Tuning—reflecting the standard practice that low-rank adapter bottlenecks require an order-of-magnitude larger step size than unconstrained full-network updates to converge within a single epoch without destabilising pre-trained representations.
 
 ### Quantitative Performance & Resource Use
 
