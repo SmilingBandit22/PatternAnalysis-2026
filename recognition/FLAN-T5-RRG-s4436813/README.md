@@ -13,14 +13,14 @@ However, standard lexical metrics like ROUGE-1, ROUGE-2, and ROUGE-L measure sur
 ### FLAN-T5: Encoder-Decoder Backbone
 
 ![System Architecture](architecture.png)
-Figure 1: Diagram of the FLAN-T5 Model Architecture
+*Figure 1: Diagram of the FLAN-T5 Model Architecture*
 
 The base model is `google/flan-t5-base` (~248M parameters), consisting of 12 encoder blocks and 12 decoder blocks ($d_{\text{model}} = 768$, 12 attention heads with $d_k = d_v = 64$, feed-forward dimension $d_{\text{ff}} = 2048$, Pre-LN RMSNorm, and relative position biases).
 
 An *Encoder-Decoder* architecture provides a distinct advantage over *decoder-only* causal models (such as GPT-2) for clinical text. Radiological narratives are scattered and interdependent across sections. Unlike left-to-right causal models, FLAN-T5's bidirectional encoder attends to all tokens simultaneously without a causal mask, building a complete representation of the clinical case before generation begins. The autoregressive decoder then acts as a grounded information bottleneck, continually querying the encoder's memory states ($H_{\text{enc}}$) via *cross-attention* so that generated layperson phrasing remains anchored to source observations.
 
 ![FLAN-T5 Sequence-to-Sequence Architecture](flan_t5_backbone.png)
-Figure 2: Diagram of the T5 Backbone of the project
+*Figure 2: Diagram of the T5 Backbone of the project*
 
 ### Custom PyTorch LoRA
 
@@ -32,7 +32,7 @@ $$h = W_0 x + \frac{\alpha}{r} B A x$$
 
 Here, $W_0 \in \mathbb{R}^{768 \times 768}$ represents the frozen pre-trained weight matrix (`requires_grad = False`), preventing PyTorch from allocating heavy AdamW momentum and variance buffers across all 248M base parameters. 
 
-The parallel adapter path compresses the 768-dimensional token representation through down-projection $A \in \mathbb{R}^{8 \times 768}$ (initialised with Gaussian noise $\sigma = 0.02$ to break symmetry) and maps it back via up-projection $B \in \mathbb{R}^{768 \times 8}$ (initialised to zeros). Because $B = 0$ at step 0, the adapter initially evaluates to zero ($B A x = 0 \implies h = W_0 x$), preserving exact pre-trained representations at the start of training. Scaling by $\frac{\alpha}{r} = \frac{32}{8} = 4.0$ stabilises update magnitudes without retuning the base learning rate.
+The parallel adapter path compresses the 768-dimensional token representation through down-projection $A \in \mathbb{R}^{8 \times 768}$ (initialised with Gaussian noise $\sigma = 0.02$ to break symmetry) and maps it back via up-projection $B \in \mathbb{R}^{768 \times 8}$ (initialised to zeros). Because $B = 0$ at step 0, the adapter initially evaluates to zero ($B A x = 0 \implies h = W_0 x$), preserving exact pre-trained representations at the start of training. Scaling by $\frac{\alpha}{r} = \frac{32}{8} = 4.0$ stabilises update magnitudes without retuning the base learning rate. Following Hu et al. [3], a rank of $r = 8$ was selected because task-specific attention adaptation resides in a low intrinsic dimension: $r = 8$ provides sufficient capacity to learn clinical-to-lay translation while keeping trainable weights at $0.36\%$ and acting as a structural bottleneck against the template overfitting that emerges at higher ranks ($r \ge 16$) or full fine-tuning.
 
 #### Injection Targets & Optimiser Memory Analysis
 Rather than modifying all projections, `LoRALinear` layers wrap the query ($W_q$) and value ($W_v$) projections across:
@@ -67,7 +67,7 @@ labels[labels == self._tokeniser.pad_token_id] = -100
 
 A major issue with routine radiology data is that normal screening reports frequently repeat identical template phrasing (e.g., *"Lungs are clear. No acute cardiopulmonary abnormality."*). If these exact templates leak into both the training and validation sets, a model can easily game lexical metrics like ROUGE by simply memorising common phrases rather than learning how to actually translate clinical text.
 
-To catch this, `load_and_split_dataset` normalises each report and computes its SHA-256 hash across the training split. The model is then evaluated across two validation sets: `Val_Full`, which serves as the official untouched validation split (10,000 cases) for standard competition benchmarking, and `Val_Unseen`, a filtered subset containing only cases whose normalised text never appeared anywhere in the training data, allowing us to directly test whether the model is genuinely generalising or just memorising templates.
+To catch this, `load_and_split_dataset` normalises each report (lowercasing and stripping punctuation/whitespace) and computes its SHA-256 hash across the $150{,}454$ training cases. The model is then evaluated across two validation cohorts (`--num_samples 500`): `Val_Full`, the official untouched validation split ($10{,}000$ cases) for standard benchmarking, and `Val_Unseen`, a deduplicated subset ($\sim 8{,}600$ unique cases after pruning $\sim 14\%$ exact training-template collisions), allowing us to directly test whether the model is genuinely generalising or just memorising boilerplate.
 
 ## Midpoint Feasibility Review
 
@@ -82,14 +82,14 @@ The following acceptance criteria are established for this prototype:
 * **Generalisation Check:** Keep the performance drop $\leq 15\%$ on an audited, deduplicated validation split (`Val_Unseen`) compared to the full split (`Val_Full`) to verify genuine generalisation over template memorisation.
 
 ### Model Choice & Course Concepts
-This project falls under the `[Hard Difficulty]` band, adapting `google/flan-t5-base` (~248M parameters, 32,128-token vocabulary) on the BioLaySumm `LaymanRRG` benchmark. FLAN-T5's bidirectional encoder and cross-attention ground plain-text translations in non-linear source findings, while custom PyTorch LoRA avoids the optimizer memory overhead of full fine-tuning. This setup directly investigates the core course dilemma: preventing models from earning deceptively high ROUGE scores by repeating boilerplate screening templates while failing on acute clinical findings.
+This project falls under the `[Hard Difficulty]` band, adapting `google/flan-t5-base` (~248M parameters, 32,128-token vocabulary) on the BioLaySumm `LaymanRRG` benchmark. FLAN-T5's bidirectional encoder and cross-attention ground plain-text translations in non-linear source findings, while custom PyTorch LoRA avoids the optimiser memory overhead of full fine-tuning. This setup directly investigates the core course dilemma: preventing models from earning deceptively high ROUGE scores by repeating boilerplate screening templates while failing on acute clinical findings.
 
 ### Preliminary Feasibility Evidence
 Initial profiling of the `LaymanRRG` dataset confirmed that over $95\%$ of reports fit within the $512$-token limit without cutting off clinical findings. Exact string matching flagged repeated normal screening templates across splits, confirming the need for a deduplicated test set (`Val_Unseen`) to catch pure memorisation. A smoke test on an interactive Rangpur GPU node confirmed that `flan-t5-base` loads and runs autoregressive generation in pure PyTorch with zero issues. Finally, running a forward and backward pass with LoRA on an initial test batch peaked at $\sim 3.4$ GB VRAM on a single GPU. This left ample headroom below the $8.0$ GB ceiling, verifying that training would operate comfortably within our memory budget.
 
 ### Risks, Budget & Fallback
 Key technical risks and mitigations include:
-* **VRAM Out-of-Memory:** Full fine-tuning risks OOM errors due to AdamW optimizer states across 248M parameters on 512-token sequences. Custom LoRA is implemented as the primary strategy to restrict updates to $<0.4\%$ of parameters.
+* **VRAM Out-of-Memory:** Full fine-tuning risks OOM errors due to AdamW optimiser states across 248M parameters on 512-token sequences. Custom LoRA is implemented as the primary strategy to restrict updates to $<0.4\%$ of parameters.
 * **Boilerplate Inflation:** High ROUGE scores masking factual hallucinations or omissions of acute pathologies. Addressed through qualitative clinical safety autopsies.
 * **Computing Budget:** $\sim 3$ GPU hours for data auditing and pipeline smoke tests; $\sim 8\text{--}10$ GPU hours total for training and benchmarking runs via Slurm on Rangpur.
 * **Next Planned Experiment:** Launch a 1-epoch run of the custom PyTorch LoRA training script on Rangpur to verify monotonic loss decrease, tracking peak VRAM allocation and step latency.
@@ -101,7 +101,7 @@ All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, m
 
 ### Quantitative Performance & Resource Use
 
-| Configuration | Trainable Params | Total Params | Train / Val Loss | Train Time (1 Epoch) | Peak Train VRAM | Peak Eval VRAM | Eval Throughput | `Val_Full` (R-1 / R-2 / R-L / R-Lsum) | `Val_Unseen` (R-1 / R-2 / R-L / R-Lsum) | Generalization Drop |
+| Configuration | Trainable Params | Total Params | Train / Val Loss | Train Time (1 Epoch) | Peak Train VRAM | Peak Eval VRAM | Eval Throughput | `Val_Full` (R-1 / R-2 / R-L / R-Lsum) | `Val_Unseen` (R-1 / R-2 / R-L / R-Lsum) | Generalisation Drop |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Zero-Shot Baseline** | 0 (0.00%) | 247.6M | N/A | N/A | N/A | 1.69 GB | 374.7 tok/s | 0.3493 / 0.1360 / 0.3118 / 0.3121 | 0.3663 / 0.1594 / 0.3188 / 0.3190 | +4.9% (no memorisation) |
 | **Custom PyTorch LoRA** | **884,736 (0.36%)** | 248.5M | 1.0451 / 0.7289 | **~44 mins** | **6.59 GB** | **1.69 GB** | **307.8 tok/s** | **0.7066 / 0.5090 / 0.6477 / 0.6484** | **0.6792 / 0.4605 / 0.6087 / 0.6085** | **-3.9% (Target $\le 15\%$)** |
@@ -109,11 +109,11 @@ All experiments were executed on an NVIDIA A100-PCIE-40GB GPU using CUDA 12.1, m
 
 ### Training Dynamics
 ![LoRA Loss Curve](lora_loss.png)
-Figure 3: Training and Validation cross-entropy loss trajectories over $18,806$ steps on an NVIDIA A100 GPU.
+*Figure 3: Training and Validation cross-entropy loss trajectories over $18,806$ steps on an NVIDIA A100 GPU.*
 
 Training converged smoothly over a single epoch, consisting of $18,806$ optimisation steps, using a batch size of $8$. Cross-entropy loss began at roughly $2.75$ on initial batches and steadily decreased to the final training loss of $1.0451$, with the validation loss reaching $0.7289$.
 
-Notably, validation loss remained consistently lower than training loss throughout training. This can be attributed to active regularisation; during training passes, a dropout rate of $p=0.05$ is injected into the LoRA bottleneck to prevent over-reliance on specific token co-occurrences. During evaluation passes, the dropout is completely disabled, allowing the full deterministic capacity of the adapted network to be used without the injected noise. The active regularisation explains the difference between the losses.
+Notably, validation loss remained consistently lower than training loss throughout training. This can be attributed to active regularisation: during training passes, a dropout rate of $p=0.05$ is injected into the LoRA bottleneck to prevent over-reliance on specific token co-occurrences. During evaluation passes, dropout is completely disabled, allowing the full deterministic capacity of the adapted network to be used without injected noise.
 
 The final validation loss of $0.7289$ corresponds to a perplexity of:
 
@@ -127,7 +127,7 @@ Despite updating only $0.36\%$ of the network ($884{,}736$ parameters), LoRA cap
 
 ## Clinical Safety
 
-In biomedical NLG, standard lexical overlap metrics ($n$-gram ROUGE) are poor proxies for clinical safety: a model can achieve high ROUGE scores by reciting fluent negative templates while hallucinating findings or omitting life-threatening pathologies. To evaluate factual fidelity beyond surface statistics, three representative validation audits were conducted covering jargon simplification, acute airway placement, and layperson readability trade-offs:
+In biomedical NLG, standard lexical overlap metrics ($n$-gram ROUGE) are poor proxies for clinical safety: a model can achieve high ROUGE scores by reciting fluent negative templates while hallucinating findings or omitting life-threatening pathologies. Because the untuned Zero-Shot baseline largely echoes truncated fragments of the raw medical prompt ($0.1360$ ROUGE-2), the qualitative audit below focuses on the critical deployment comparison between Custom LoRA and Full Fine-Tuning across three representative validation cases covering jargon simplification, acute airway placement, and layperson readability trade-offs:
 
 | Case # & Focus | Source Report & Gold Standard | Custom LoRA Prediction ($r=8$) | Full Fine-Tuning Prediction | Clinical Verdict |
 | :--- | :--- | :--- | :--- | :--- |
@@ -251,7 +251,7 @@ All pipelines execute directly from `recognition/FLAN-T5-RRG-s4436813/` (pass `-
 | **2. Train LoRA (1 GPU)** | `python train.py --mode lora` | Saves `checkpoints/lora.pt` and plots `lora_loss.png` |
 | **3. Train LoRA (DDP)** | `torchrun --nproc_per_node=2 train.py --mode lora` | Multi-GPU Distributed Data Parallel training |
 | **4. Train Full FT** | `python train.py --mode full_finetune` | Saves `checkpoints/full_finetune.pt` ($100\%$ weights) |
-| **5. Evaluate LoRA** | `python predict.py --mode lora --checkpoint checkpoints/lora.pt --num_samples 500` | LoRA ROUGE scores, latency telemetry & 4-case safety autopsy |
+| **5. Evaluate LoRA** | `python predict.py --mode lora --checkpoint checkpoints/lora.pt --num_samples 500` | LoRA ROUGE scores, latency telemetry & clinical safety autopsy |
 | **6. Evaluate Full FT** | `python predict.py --mode full_finetune --checkpoint checkpoints/full_finetune.pt --num_samples 500` | Full FT ROUGE scores & comparative safety autopsy |
 
 ## Artificial Intelligence Usage Disclosure
