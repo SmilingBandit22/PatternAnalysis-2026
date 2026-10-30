@@ -1,4 +1,7 @@
-# Translating Radiology Findings into Plain Language: Evaluating FLAN-T5 and Custom PyTorch LoRA on LaymanRRG – Aidan Fassy – 44368133
+# Translating Radiology Findings into Plain Language: Evaluating FLAN-T5 and Custom PyTorch LoRA on LaymanRRG 
+
+**Author:** Aidan Fassy
+**Student Number:** 44368133
 
 ## Executive Summary
 
@@ -258,9 +261,9 @@ All pipelines execute directly from `recognition/FLAN-T5-RRG-s4436813/` (pass `-
 
 In compliance with COMP3710 Assessment Guidelines, Generative AI usage is documented below:
 * **AI Tools Utilised:** Google Gemini (via the Antigravity development environment).
-* **Specific Tasks Assisted:** Styling the Mermaid deployment flowchart, scaffolding the Matplotlib loss-plotting layout (`lora_loss.png`), drafting Slurm batch templates (`sbatch`) for Rangpur, and proofreading report formatting.
+* **Specific Tasks Assisted:** Styling the Mermaid deployment flowchart, scaffolding the Matplotlib loss-plotting layout (`lora_loss.png`), drafting Slurm batch templates (`sbatch`) for Rangpur, creating markdown tables given data, and proofreading report formatting.
 * **Auditing, Verification & Empirical Testing:** Manually derived and verified the LoRA update ($h = W_0 x + \frac{\alpha}{r} B A x$) and zero-initialisation ($B = 0$) to guarantee zero step-0 perturbation; audited `dataset.py` to confirm target padding (`0`) maps strictly to `-100` for `CrossEntropyLoss` and verified SHA-256 deduplication for `Val_Unseen`; empirically tested single-GPU and `torchrun` DDP execution on NVIDIA A100 nodes.
-* **Verification Responsibility:** Aidan Fassy (s4436813) assumes 100% personal responsibility for every line of code, loss formula, metric, and clinical interpretation in this submission.
+* **Verification Responsibility:** I assumed 100% personal responsibility for every line of code, loss formula, metric, and clinical interpretation in this submission.
 
 ## References
 
