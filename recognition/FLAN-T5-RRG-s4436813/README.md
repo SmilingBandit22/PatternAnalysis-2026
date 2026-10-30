@@ -4,7 +4,7 @@
 
 Radiological reports are written in dense medical jargon that frequently leaves patients anxious, confused, and prone to misinterpretation when reviewing their results on health portals. The objective of this project is to build a sequence-to-sequence NLP prototype on the ACL 2025 BioLaySumm (`LaymanRRG`) benchmark that translates complex diagnostic findings into accurate, layperson-accessible language at approximately a 6th-grade reading level.
 
-To achieve this without the heavy memory overhead of full fine-tuning, we adapt `google/flan-t5-base` (~248M parameters) using a custom PyTorch Low-Rank Adaptation (LoRA) layer injected into the attention query ($W_q$) and value ($W_v$) projections. Freezing $99.64\%$ of the base weights restricts updates to a lightweight rank-8 bottleneck (~$884\text{K}$ parameters, $0.36\%$ of total).
+To achieve this without the heavy memory overhead of full fine-tuning, we adapt `google/flan-t5-base` (approx. 248M parameters) using a custom PyTorch Low-Rank Adaptation (LoRA) layer injected into the attention query ($W_q$) and value ($W_v$) projections. Freezing 99.64% of the base weights restricts updates to a lightweight rank-8 bottleneck (approx. 884K parameters, 0.36% of total).
 
 However, standard lexical metrics like ROUGE-1, ROUGE-2, and ROUGE-L measure surface $n$-gram overlap rather than clinical truth. A model can subvert these metrics by memorising routine normal findings (e.g., *"lungs are clear, no acute abnormality"*) while omitting critical pathologies or hallucinating non-existent findings. This investigation evaluates whether LoRA fine-tuning genuinely improves factual clinical fidelity over an untuned zero-shot baseline and unconstrained full fine-tuning across both full (`Val_Full`) and deduplicated (`Val_Unseen`) validation splits.
 
@@ -44,7 +44,7 @@ Rather than modifying all projections, `LoRALinear` layers wrap the query ($W_q$
 **Trainable LoRA Parameters:** $884,736$ ($0.36\%$ of total)  
 **Total Parameters:** $248,462,592$
 
-Because $99.64\%$ of weights are frozen, AdamW only allocates gradient history, momentum ($m_t$), and variance ($v_t$) states for 884K parameters (~$7$ MB) instead of 248M parameters (~$2$ GB), reducing peak training VRAM on an A100 GPU from $10.29$ GB (Full FT) down to $6.59$ GB.
+Because 99.64% of weights are frozen, AdamW only allocates gradient history, momentum ($m_t$), and variance ($v_t$) states for 884K parameters (approx. 7 MB) instead of 248M parameters (approx. 2 GB), reducing peak training VRAM on an A100 GPU from 10.29 GB (Full FT) down to 6.59 GB.
 
 ## Data Pipeline & Preprocessing
 ### Dataset
